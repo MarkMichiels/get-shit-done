@@ -1,102 +1,102 @@
-# Fork Setup voor get-shit-done
+# Fork Setup for get-shit-done
 
-## Stap 1: Fork op GitHub
+## Step 1: Fork on GitHub
 
-1. Ga naar: https://github.com/glittercowboy/get-shit-done
-2. Klik op "Fork" (rechtsboven)
-3. Kies je account (MarkMichiels)
-4. Wacht tot de fork klaar is
+1. Go to: https://github.com/glittercowboy/get-shit-done
+2. Click "Fork" (top right)
+3. Choose your account (MarkMichiels)
+4. Wait for the fork to complete
 
-## Stap 2: Remote aanpassen
+## Step 2: Configure Remote
 
-Na het forken, pas de remote aan:
+After forking, configure the remote:
 
 ```bash
 cd /home/mark/Repositories/get-shit-done
 
-# Check huidige remote
+# Check current remote
 git remote -v
 
-# Voeg je fork toe als 'fork' remote (of vervang 'origin')
+# Add your fork as 'fork' remote (or replace 'origin')
 git remote add fork https://github.com/MarkMichiels/get-shit-done.git
 
-# Of vervang origin als je alleen met je fork wilt werken:
+# Or replace origin if you only want to work with your fork:
 # git remote set-url origin https://github.com/MarkMichiels/get-shit-done.git
 
-# Check nieuwe remote
+# Check new remote
 git remote -v
 ```
 
-## Stap 3: Branch maken voor feature
+## Step 3: Create Feature Branch
 
 ```bash
-# Maak nieuwe branch voor create-issue feature
+# Create new branch for create-issue feature
 git checkout -b feature/create-issue-command
 
 # Check status
 git status
 ```
 
-## Stap 4: Committen en pushen
+## Step 4: Commit and Push
 
 ```bash
-# Voeg nieuwe file toe
+# Add new files
 git add commands/gsd/create-issue.md
 git add README.md
 
 # Commit
 git commit -m "feat: add /gsd:create-issue command for creating issues in ISSUES.md"
 
-# Push naar je fork
+# Push to your fork
 git push -u fork feature/create-issue-command
-# Of als je origin hebt aangepast:
+# Or if you changed origin:
 # git push -u origin feature/create-issue-command
 ```
 
-## Stap 5: Pull Request maken (optioneel)
+## Step 5: Create Pull Request (Optional)
 
-1. Ga naar: https://github.com/MarkMichiels/get-shit-done
-2. Klik op "Compare & pull request"
-3. Beschrijf de feature
-4. Submit PR naar upstream (glittercowboy/get-shit-done)
+1. Go to: https://github.com/MarkMichiels/get-shit-done
+2. Click "Compare & pull request"
+3. Describe the feature
+4. Submit PR to upstream (glittercowboy/get-shit-done)
 
-## Stap 6: Upstream sync houden
+## Step 6: Keep Upstream in Sync
 
-Om updates van upstream te krijgen:
+To get updates from upstream:
 
 ```bash
-# Voeg upstream toe (als je dat nog niet hebt)
+# Add upstream (if you haven't already)
 git remote add upstream https://github.com/glittercowboy/get-shit-done.git
 
-# Haal updates op
+# Fetch updates
 git fetch upstream
 
-# Merge upstream/main in je branch
+# Merge upstream/main into your branch
 git checkout main
 git merge upstream/main
 
-# Push naar je fork
+# Push to your fork
 git push fork main
 ```
 
-## Workflow voor toekomstige features
+## Workflow for Future Features
 
 ```bash
-# 1. Update van upstream
+# 1. Update from upstream
 git checkout main
 git fetch upstream
 git merge upstream/main
 
-# 2. Maak nieuwe feature branch
+# 2. Create new feature branch
 git checkout -b feature/your-feature-name
 
-# 3. Werk aan feature
+# 3. Work on feature
 # ... edit files ...
 
-# 4. Commit en push
+# 4. Commit and push
 git add .
 git commit -m "feat: description"
 git push -u fork feature/your-feature-name
 
-# 5. PR maken op GitHub
+# 5. Create PR on GitHub
 ```
