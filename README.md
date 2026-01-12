@@ -333,6 +333,7 @@ You're never locked in. The system adapts.
 | `/gsd:resume-work` | Restore from last session |
 | `/gsd:resume-task [id]` | Resume interrupted subagent execution |
 | `/gsd:consider-issues` | Review deferred issues, close resolved, identify urgent |
+| `/gsd:create-issue` | Create a new issue in ISSUES.md with proper numbering |
 | `/gsd:add-todo [desc]` | Capture idea or task from conversation for later |
 | `/gsd:check-todos [area]` | List pending todos, select one to work on |
 | `/gsd:help` | Show all commands and usage guide |
