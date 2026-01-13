@@ -30,6 +30,20 @@ This respects the iterative planning principle:
 - Planning uses context from previous phase summaries
 - Code builds incrementally
 - Context accumulates naturally through SUMMARY.md files
+
+**Branch-based workflow (default):**
+- All development happens on a feature branch (isolated from main)
+- Branch is created at start of build cycle
+- All commits go to the feature branch
+- At end of cycle, branch is merged to main (or target branch)
+- Prevents unstable code from affecting main branch during development
+
+**Loop mode (default):**
+- After completing all phases and addressing issues, wait 10 minutes
+- Check for new issues in ISSUES.md
+- If new issues found, start new build cycle on new branch
+- Continues looping until no new issues appear
+- Each cycle is isolated on its own branch until merged
 </objective>
 
 <execution_context>
@@ -137,6 +151,69 @@ cat .planning/config.json 2>/dev/null
 Parse mode (yolo/interactive) and gates.
 </step>
 
+<step name="setup_branch">
+**Setup development branch (default workflow):**
+
+**Check current git status:**
+```bash
+# Detect current branch
+git rev-parse --abbrev-ref HEAD
+
+# Check if we're on main/master
+git rev-parse --abbrev-ref HEAD | grep -E '^(main|master)$'
+```
+
+**If on main/master:**
+```
+🌿 Creating development branch for this build cycle
+```
+
+1. **Store original branch name:**
+   ```bash
+   ORIGINAL_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+   echo "$ORIGINAL_BRANCH" > .planning/.build-all-original-branch 2>/dev/null || true
+   ```
+
+2. **Generate branch name:**
+   ```bash
+   # Format: build-all-YYYYMMDD-HHMMSS or build-all-cycle-N
+   # Use cycle number if available from STATE.md, otherwise timestamp
+   BRANCH_NAME="build-all-$(date +%Y%m%d-%H%M%S)"
+   # Or if cycle tracking exists:
+   # BRANCH_NAME="build-all-cycle-${CYCLE_NUMBER}"
+   ```
+
+3. **Create and switch to branch:**
+   ```bash
+   git checkout -b "$BRANCH_NAME"
+   ```
+
+4. **Store branch name for later merge:**
+   - Original branch stored in `.planning/.build-all-original-branch`
+   - Current branch name stored in `.planning/.build-all-current-branch`
+   ```bash
+   echo "$BRANCH_NAME" > .planning/.build-all-current-branch 2>/dev/null || true
+   ```
+
+**If already on feature branch:**
+```
+ℹ️  Already on feature branch: $(git rev-parse --abbrev-ref HEAD)
+Continuing development on existing branch.
+```
+
+**If not a git repository:**
+```
+⚠️  Not a git repository. Branch workflow skipped.
+Continuing without branch isolation.
+```
+
+**Branch workflow benefits:**
+- Isolates development from main branch
+- Allows testing/CI to run on main without interference
+- Clean merge at end of cycle
+- Easy rollback if cycle fails
+</step>
+
 <step name="build_loop">
 **Build all phases sequentially (with issue resolution loop):**
 
@@ -147,6 +224,10 @@ Parse mode (yolo/interactive) and gates.
 This will plan and execute each phase sequentially.
 Each phase planning uses context from previous phase summaries.
 Open issues will be automatically addressed after roadmap phases complete.
+
+Branch workflow: Development happens on isolated feature branch
+Loop mode: After completion, waits 10 minutes and checks for new issues
+Merge: Development branch merges to main at end of each cycle
 
 Starting build pipeline...
 ```
@@ -162,6 +243,11 @@ You'll be prompted at:
 - Blocking checkpoints during execution
 - Errors or failures
 - Open issues resolution (after roadmap phases complete)
+- Merge confirmation (if conflicts occur)
+
+Branch workflow: Development happens on isolated feature branch
+Loop mode: After completion, waits 10 minutes and checks for new issues
+Merge: Development branch merges to main at end of each cycle
 
 Proceed with full build?
 ```
@@ -236,7 +322,8 @@ Wait for confirmation.
 - Continue until no phases remain AND no open issues remain
 
 **If no issues OR all issues addressed:**
-- Continue to completion message
+- Continue to merge_branch step (merge development branch to main)
+- After merge, continue to loop_mode step (check for new issues)
 
 **Step 5a. Check for open issues:**
 ```bash
@@ -359,7 +446,7 @@ Use AskUserQuestion:
 
 **If no open issues (count = 0) OR all issues addressed:**
 ```
-🎉 Project Build Complete!
+🎉 Build Cycle Complete!
 
 ✅ All phases planned and executed
 📊 Total phases: {N}
@@ -367,8 +454,192 @@ Use AskUserQuestion:
 💾 All commits made
 ✅ All open issues addressed (if applicable)
 
-Project is ready for milestone completion.
+Proceeding to merge and loop check...
 ```
+</step>
+
+<step name="merge_branch">
+**Merge development branch to target branch (default workflow):**
+
+**Only if branch workflow was used (not on main/master):**
+
+```bash
+# Get current branch name
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# Determine target branch (main, master, or branch we started from)
+# Check if we have a stored "original branch" from setup_branch step
+if [ -f .planning/.build-all-original-branch ]; then
+  TARGET_BRANCH=$(cat .planning/.build-all-original-branch)
+else
+  # Otherwise, try to detect default branch
+  TARGET_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || \
+    git branch -r | grep -E 'origin/(main|master)' | head -1 | sed 's@origin/@@' || \
+    echo "main")
+fi
+
+# Check if we're on a feature branch (starts with "build-all-")
+if echo "$CURRENT_BRANCH" | grep -q "^build-all-"; then
+  echo "MERGE_NEEDED"
+else
+  echo "NO_MERGE_NEEDED"
+fi
+```
+
+**If MERGE_NEEDED:**
+
+```
+🔄 Merging development branch to {TARGET_BRANCH}
+```
+
+1. **Switch to target branch:**
+   ```bash
+   git checkout "$TARGET_BRANCH"
+   git pull --rebase  # Ensure target is up to date
+   ```
+
+2. **Merge feature branch:**
+   ```bash
+   git merge "$CURRENT_BRANCH" --no-ff -m "Merge build cycle: $CURRENT_BRANCH"
+   ```
+
+3. **Handle merge conflicts:**
+   - If conflicts occur, show error and pause
+   - In interactive mode: Wait for user to resolve
+   - In YOLO mode: Attempt automatic resolution if possible, otherwise pause
+
+4. **Push merged changes:**
+   ```bash
+   git push origin "$TARGET_BRANCH"
+   ```
+
+5. **Cleanup (optional):**
+   ```bash
+   # Optionally delete feature branch after successful merge
+   git branch -d "$CURRENT_BRANCH"
+   ```
+
+**If merge successful:**
+```
+✅ Successfully merged to {TARGET_BRANCH}
+Code is now available on main branch.
+```
+
+**If merge failed:**
+```
+❌ Merge conflicts detected
+
+Please resolve conflicts manually:
+1. Fix conflicts in affected files
+2. Run: git add <resolved-files>
+3. Run: git commit
+4. Run: git push
+
+Then retry /gsd:build-all to continue.
+```
+Pause and wait for user to resolve.
+
+**If NO_MERGE_NEEDED:**
+```
+ℹ️  Already on main branch. No merge needed.
+```
+</step>
+
+<step name="loop_mode">
+**Loop mode: Check for new issues and restart cycle (default):**
+
+**This is the default behavior - build-all always loops until no new issues appear.**
+
+**Store initial issue state (at start of cycle, in setup_branch or build_loop):**
+```bash
+# Store issue count and IDs at start of cycle
+if [ -f .planning/ISSUES.md ]; then
+  INITIAL_ISSUE_COUNT=$(awk '/^## Open Enhancements/,/^## / { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md)
+  grep -E '^### ISS-[0-9]+:' .planning/ISSUES.md | sed 's/^### //' | cut -d: -f1 > .planning/.build-all-initial-issues 2>/dev/null || true
+  echo "$INITIAL_ISSUE_COUNT" > .planning/.build-all-initial-issue-count 2>/dev/null || true
+else
+  echo "0" > .planning/.build-all-initial-issue-count 2>/dev/null || true
+  touch .planning/.build-all-initial-issues 2>/dev/null || true
+fi
+```
+
+**After merge completes, start loop check:**
+
+```
+🔄 Loop Mode: Checking for new issues in 10 minutes...
+```
+
+1. **Wait 10 minutes:**
+   - Show countdown or wait message
+   - Allow user to skip wait if desired (interactive mode only)
+   ```bash
+   # Wait 10 minutes (600 seconds)
+   sleep 600
+   ```
+
+2. **Check for new issues:**
+   ```bash
+   # Count current open issues
+   if [ -f .planning/ISSUES.md ]; then
+     CURRENT_ISSUE_COUNT=$(awk '/^## Open Enhancements/,/^## / { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md)
+     grep -E '^### ISS-[0-9]+:' .planning/ISSUES.md | sed 's/^### //' | cut -d: -f1 > .planning/.build-all-current-issues 2>/dev/null || true
+   else
+     CURRENT_ISSUE_COUNT=0
+     touch .planning/.build-all-current-issues 2>/dev/null || true
+   fi
+
+   # Load initial count
+   INITIAL_ISSUE_COUNT=$(cat .planning/.build-all-initial-issue-count 2>/dev/null || echo "0")
+
+   # Compare counts
+   if [ "$CURRENT_ISSUE_COUNT" -gt "$INITIAL_ISSUE_COUNT" ]; then
+     echo "NEW_ISSUES_FOUND"
+   else
+     # Check if issue IDs changed (even if count same)
+     if ! diff -q .planning/.build-all-initial-issues .planning/.build-all-current-issues >/dev/null 2>&1; then
+       echo "NEW_ISSUES_FOUND"
+     else
+       echo "NO_NEW_ISSUES"
+     fi
+   fi
+   ```
+
+3. **If new issues found:**
+   ```
+   🔍 New Issues Detected
+
+   Found {N} new issue(s) since last cycle:
+   {List new issues with ISS numbers by comparing issue ID lists}
+
+   Starting new build cycle...
+   ```
+   - Return to `setup_branch` step (create new branch for new cycle)
+   - Continue with full build workflow
+   - This creates a new isolated development cycle
+   - Update initial issue state for new cycle
+
+4. **If no new issues:**
+   ```
+   ✅ No new issues found
+
+   Build complete. All work merged to main.
+   No further action needed.
+   ```
+   - Clean up temporary files:
+     ```bash
+     rm -f .planning/.build-all-initial-issues .planning/.build-all-current-issues .planning/.build-all-initial-issue-count .planning/.build-all-original-branch .planning/.build-all-current-branch
+     ```
+   - Exit successfully
+
+**Loop termination:**
+- Loop continues until no new issues appear after a cycle
+- Each cycle is isolated on its own branch
+- Each cycle merges to main before next cycle starts
+- Prevents unstable code from affecting main during development
+
+**Manual termination:**
+- User can stop loop at any time
+- Current cycle completes and merges before stopping
 </step>
 
 <step name="handle_checkpoints">
@@ -398,6 +669,7 @@ In interactive mode:
 <success_criteria>
 - [ ] Planning structure verified
 - [ ] Roadmap exists (or created via /gsd:create-roadmap)
+- [ ] Development branch created (if not already on feature branch)
 - [ ] All phases identified from roadmap
 - [ ] Each phase planned before execution
 - [ ] Each phase executed completely before next phase planning
@@ -406,5 +678,9 @@ In interactive mode:
 - [ ] Pipeline pauses only at blocking checkpoints
 - [ ] Open issues checked after all phases complete
 - [ ] User notified if open issues exist (not in roadmap)
+- [ ] Development branch merged to main (or target branch) after cycle complete
+- [ ] Loop mode checks for new issues (waits 10 minutes)
+- [ ] New build cycle starts if new issues found
+- [ ] Loop terminates when no new issues appear
 - [ ] Final summary shows completion status and open issues count
 </success_criteria>
