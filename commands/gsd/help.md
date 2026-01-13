@@ -116,6 +116,30 @@ Execute a PLAN.md file directly.
 
 Usage: `/gsd:execute-plan .planning/phases/01-foundation/01-01-PLAN.md`
 
+**`/gsd:build-phase [phase]`**
+Plan and execute a phase automatically (plan → execute all plans in phase).
+
+- Plans the phase (creates PLAN.md files)
+- Executes all plans in the phase sequentially
+- Each plan execution builds on the previous plan's SUMMARY.md context
+
+This is the ideal workflow because planning uses context from previous phase summaries, and code builds incrementally.
+
+Usage: `/gsd:build-phase 1` or `/gsd:build-phase` (auto-detects next phase)
+
+**`/gsd:build-all`**
+Build entire project automatically (plan → execute each phase sequentially).
+
+- Plans Phase 1 → Executes all plans in Phase 1
+- Plans Phase 2 → Executes all plans in Phase 2 (uses Phase 1 summaries as context)
+- Continues until all phases complete
+
+This respects the iterative planning principle: each phase is planned AFTER previous phase is executed, so planning uses context from previous phase summaries.
+
+Perfect for building a complete new application from scratch without manual intervention.
+
+Usage: `/gsd:build-all`
+
 ### Roadmap Management
 
 **`/gsd:add-phase <description>`**
