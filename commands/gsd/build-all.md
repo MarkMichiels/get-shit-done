@@ -39,11 +39,14 @@ This respects the iterative planning principle:
 - Prevents unstable code from affecting main branch during development
 
 **Loop mode (default):**
-- After completing all phases and addressing issues, wait 10 minutes
-- Check for new issues in ISSUES.md
-- If new issues found, start new build cycle on new branch
-- Continues looping until no new issues appear
+- After completing all phases and addressing issues, **execute `sleep 600` terminal command** (waits 10 minutes = 600 seconds)
+- This is a **real terminal wait** - not just a description
+- Check for new issues in ISSUES.md after wait completes
+- If new issues found, **restart build cycle from beginning** (setup_branch step) - this is a REAL restart
+- Continues looping until no new issues appear OR maximum cycles reached (6 cycles = 1 hour)
 - Each cycle is isolated on its own branch until merged
+- Uses `run_terminal_cmd` with `is_background: false` to execute the wait
+- Command ends after loop completes (either no new issues or max cycles reached)
 </objective>
 
 <execution_context>
@@ -569,13 +572,64 @@ fi
 🔄 Loop Mode: Checking for new issues in 10 minutes...
 ```
 
-1. **Wait 10 minutes:**
-   - Show countdown or wait message
-   - Allow user to skip wait if desired (interactive mode only)
+1. **Wait 10 minutes using actual terminal command in loop:**
+
+   **⚠️ CRITICAL: Use `run_terminal_cmd` to execute the loop - this is a REAL terminal command that actually waits and restarts.**
+
    ```bash
-   # Wait 10 minutes (600 seconds)
-   sleep 600
+   CYCLE=1
+   MAX_CYCLES=6  # 6 cycles × 10 min = 60 minutes (1 hour) max
+
+   while [ $CYCLE -le $MAX_CYCLES ]; do
+     echo "=== Loop Cycle $CYCLE/$MAX_CYCLES ==="
+     echo "Waiting 10 minutes for new issues to appear..."
+
+     # ACTUAL TERMINAL WAIT - executes sleep 600 (10 minutes)
+     sleep 600
+
+     # Check for new issues (compare current vs initial)
+     if [ -f .planning/ISSUES.md ]; then
+       CURRENT_ISSUE_COUNT=$(awk '/^## Open Enhancements/,/^## / { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md)
+       grep -E '^### ISS-[0-9]+:' .planning/ISSUES.md | sed 's/^### //' | cut -d: -f1 > .planning/.build-all-current-issues 2>/dev/null || true
+     else
+       CURRENT_ISSUE_COUNT=0
+       touch .planning/.build-all-current-issues 2>/dev/null || true
+     fi
+
+     INITIAL_ISSUE_COUNT=$(cat .planning/.build-all-initial-issue-count 2>/dev/null || echo "0")
+
+     # Compare counts
+     if [ "$CURRENT_ISSUE_COUNT" -gt "$INITIAL_ISSUE_COUNT" ]; then
+       echo "NEW_ISSUES_FOUND"
+       echo "Found $((CURRENT_ISSUE_COUNT - INITIAL_ISSUE_COUNT)) new issue(s). Restarting build cycle..."
+       break
+     else
+       # Check if issue IDs changed (even if count same)
+       if ! diff -q .planning/.build-all-initial-issues .planning/.build-all-current-issues >/dev/null 2>&1; then
+         echo "NEW_ISSUES_FOUND"
+         echo "Issue IDs changed. Restarting build cycle..."
+         break
+       else
+         echo "NO_NEW_ISSUES"
+         if [ $CYCLE -lt $MAX_CYCLES ]; then
+           echo "No new issues. Continuing loop..."
+           CYCLE=$((CYCLE + 1))
+         else
+           echo "Maximum cycles reached (6 cycles = 1 hour). Stopping loop."
+           break
+         fi
+       fi
+     fi
+   done
    ```
+
+   **Implementation in AI assistant:**
+   - Use `run_terminal_cmd` with `is_background: false` to execute the loop
+   - The `sleep 600` command will actually wait 10 minutes
+   - After each wait, check for new issues
+   - If new issues found, break loop and **restart from setup_branch step** (REAL restart)
+   - If no new issues and cycles remaining, continue loop
+   - If max cycles (6) reached, stop loop and end command
 
 2. **Check for new issues:**
    ```bash
@@ -604,6 +658,8 @@ fi
    fi
    ```
 
+2. **After loop completes, check result:**
+
 3. **If new issues found:**
    ```
    🔍 New Issues Detected
@@ -611,16 +667,17 @@ fi
    Found {N} new issue(s) since last cycle:
    {List new issues with ISS numbers by comparing issue ID lists}
 
-   Starting new build cycle...
+   Restarting build cycle from beginning...
    ```
-   - Return to `setup_branch` step (create new branch for new cycle)
+   - **Return to `setup_branch` step** (create new branch for new cycle) - this is a REAL restart
    - Continue with full build workflow
    - This creates a new isolated development cycle
    - Update initial issue state for new cycle
+   - After cycle completes, loop again if new issues appear
 
-4. **If no new issues:**
+4. **If no new issues OR max cycles reached:**
    ```
-   ✅ No new issues found
+   ✅ No new issues found (or maximum cycles reached)
 
    Build complete. All work merged to main.
    No further action needed.
@@ -629,17 +686,31 @@ fi
      ```bash
      rm -f .planning/.build-all-initial-issues .planning/.build-all-current-issues .planning/.build-all-initial-issue-count .planning/.build-all-original-branch .planning/.build-all-current-branch
      ```
-   - Exit successfully
+   - **End command** - loop complete
 
 **Loop termination:**
-- Loop continues until no new issues appear after a cycle
+- Loop continues until no new issues appear after a cycle OR maximum cycles reached (6 cycles = 1 hour)
 - Each cycle is isolated on its own branch
 - Each cycle merges to main before next cycle starts
 - Prevents unstable code from affecting main during development
+- Uses actual `sleep 600` terminal command to wait between cycles
+- **Command ends after loop completes** (either no new issues or max cycles reached)
+
+**Maximum cycles:**
+- Default: 6 cycles (60 minutes total wait time)
+- After 6 cycles with no new issues, loop stops and command ends
+- Prevents infinite loops while allowing reasonable time for external fixes
 
 **Manual termination:**
 - User can stop loop at any time
 - Current cycle completes and merges before stopping
+- The `sleep 600` command can be interrupted (Ctrl+C), but loop will continue checking
+
+**⚠️ CRITICAL:**
+- The loop uses **actual terminal commands** (`sleep 600`) to wait
+- The loop **actually restarts the workflow** from `setup_branch` step when new issues are found
+- This must be executed using `run_terminal_cmd` tool, not just described
+- Command ends after loop completes (either success or max cycles reached)
 </step>
 
 <step name="handle_checkpoints">
