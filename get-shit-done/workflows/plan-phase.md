@@ -30,10 +30,18 @@ Decimal phases enable urgent work insertion without renumbering:
 </required_reading>
 
 <purpose>
-Create an executable phase prompt (PLAN.md). PLAN.md IS the prompt that Claude executes - not a document that gets transformed.
+Create executable phase prompts (PLAN.md files) optimized for parallel execution.
+
+PLAN.md IS the prompt that Claude executes. Plans are grouped into execution waves based on dependencies - independent plans run in parallel, dependent plans wait for predecessors.
 </purpose>
 
 <planning_principles>
+**Parallel by default:** Think in dependency graphs, not sequential lists. Ask "what does this need?" not "what comes next?"
+
+**Vertical slices over horizontal layers:** Group by feature (User: model + API + UI) not by type (all models → all APIs → all UIs).
+
+**Explicit dependencies:** Every plan declares what it needs (`depends_on`) and what it touches (`files_modified`). Empty dependencies = parallel candidate.
+
 **Secure by design:** Assume hostile input on every boundary. Validate, parameterize, authenticate, fail closed.
 
 **Performance by design:** Assume production load, not demo conditions. Plan for efficient data access, appropriate caching, minimal round trips.
@@ -47,7 +55,7 @@ Create an executable phase prompt (PLAN.md). PLAN.md IS the prompt that Claude e
 Read `.planning/STATE.md` and parse:
 - Current position (which phase we're planning)
 - Accumulated decisions (constraints on this phase)
-- Deferred issues (candidates for inclusion)
+- Pending todos (candidates for inclusion)
 - Blockers/concerns (things this phase may address)
 - Brief alignment status
 
@@ -178,19 +186,19 @@ Only now open and read complete SUMMARY.md files for the selected relevant phase
 - "Issues Encountered" that might affect current phase
 - "Deviations from Plan" for patterns
 
-**From STATE.md:** Decisions → constrain approach. Deferred issues → candidates. Blockers → may need to address.
+**From STATE.md:** Decisions → constrain approach. Pending todos → candidates. Blockers → may need to address.
 
-**From ISSUES.md:**
+**From pending todos:**
 
 ```bash
-cat .planning/ISSUES.md 2>/dev/null
+ls .planning/todos/pending/*.md 2>/dev/null
 ```
 
-Assess each open issue - relevant to this phase? Waiting long enough? Natural to address now? Blocking something?
+Assess each pending todo - relevant to this phase? Natural to address now?
 
 **Answer before proceeding:**
 - Q1: What decisions from previous phases constrain this phase?
-- Q2: Are there deferred issues that should become tasks?
+- Q2: Are there pending todos that should become tasks?
 - Q3: Are there concerns from "Next Phase Readiness" that apply?
 - Q4: Given all context, does the roadmap's description still make sense?
 
@@ -200,7 +208,7 @@ Assess each open issue - relevant to this phase? Waiting long enough? Natural to
 - Established patterns (from frontmatter)
 - Key files to reference (from frontmatter)
 - Applicable decisions (from frontmatter + full summary)
-- Issues being addressed (from ISSUES.md)
+- Todos being addressed (from pending todos)
 - Concerns being verified (from "Next Phase Readiness")
 </step>
 
@@ -233,7 +241,12 @@ cat .planning/phases/XX-name/${PHASE}-CONTEXT.md 2>/dev/null
 </step>
 
 <step name="break_into_tasks">
-Decompose phase into tasks and identify TDD candidates.
+Decompose phase into tasks. **Think dependencies first, not sequence.**
+
+For each potential task, ask:
+1. **What does this task NEED?** (files, types, APIs that must exist)
+2. **What does this task CREATE?** (files, types, APIs others might need)
+3. **Can this run independently?** (no dependencies = Wave 1 candidate)
 
 **Standard tasks need:**
 - **Type**: auto, checkpoint:human-verify, checkpoint:decision (human-action rarely needed)
@@ -275,10 +288,183 @@ See `~/.claude/get-shit-done/references/tdd.md` for TDD plan structure.
 **Critical:** If external resource has CLI/API (Vercel, Stripe, etc.), use type="auto" to automate. Only checkpoint for verification AFTER automation.
 
 See ~/.claude/get-shit-done/references/checkpoints.md for checkpoint structure.
+
+**User setup detection:** For tasks involving external services, identify human-required configuration:
+
+External service indicators:
+- New SDK: `stripe`, `@sendgrid/mail`, `twilio`, `openai`, `@supabase/supabase-js`
+- Webhook handlers: Files in `**/webhooks/**` or `**/webhook*`
+- OAuth integration: Social login, third-party auth
+- API keys: Code referencing `process.env.SERVICE_*` patterns
+
+For each external service, determine:
+1. **Env vars needed** - What secrets must be retrieved from dashboards?
+2. **Account setup** - Does user need to create an account?
+3. **Dashboard config** - What must be configured in external UI?
+4. **Local dev** - Any CLI tools for local testing?
+
+Record in `user_setup` frontmatter (see write_phase_prompt step).
+</step>
+
+<step name="build_dependency_graph">
+**Map task dependencies explicitly before grouping into plans.**
+
+**1. For each task identified, record:**
+- `needs`: What must exist before this task runs (files, types, prior task outputs)
+- `creates`: What this task produces (files, types, exports)
+- `has_checkpoint`: Does this task require user interaction?
+
+**2. Build the dependency graph:**
+
+```
+Example phase with 6 tasks:
+
+Task A (User model): needs nothing, creates src/models/user.ts
+Task B (Product model): needs nothing, creates src/models/product.ts
+Task C (User API): needs Task A, creates src/api/users.ts
+Task D (Product API): needs Task B, creates src/api/products.ts
+Task E (Dashboard): needs Task C + D, creates src/components/Dashboard.tsx
+Task F (Verify UI): checkpoint:human-verify, needs Task E
+
+Dependency graph:
+  A ──→ C ──┐
+            ├──→ E ──→ F
+  B ──→ D ──┘
+
+Wave analysis:
+  Wave 1: A, B (independent roots)
+  Wave 2: C, D (depend only on Wave 1)
+  Wave 3: E (depends on Wave 2)
+  Wave 4: F (checkpoint, depends on Wave 3)
+```
+
+**3. Identify parallelization opportunities:**
+
+| Pattern | Result |
+|---------|--------|
+| No dependencies | Wave 1 (parallel) |
+| Depends only on Wave 1 | Wave 2 (parallel) |
+| Has checkpoint | Runs in wave, but can pause/resume |
+| Shared file conflict | Must be sequential |
+
+**4. Detect and prefer vertical slices:**
+
+**Sequential (horizontal layers) - AVOID:**
+```
+Plan 01: Create User model, Product model, Order model
+Plan 02: Create User API, Product API, Order API
+Plan 03: Create User UI, Product UI, Order UI
+```
+Result: Fully sequential (02 needs 01, 03 needs 02)
+
+**Parallel (vertical slices) - PREFER:**
+```
+Plan 01: User feature (model + API + UI)
+Plan 02: Product feature (model + API + UI)
+Plan 03: Order feature (model + API + UI)
+```
+Result: All three can run in parallel (Wave 1)
+
+**When vertical slices work:**
+- Features are independent (no shared types/data)
+- Each slice is self-contained
+- No cross-feature dependencies
+
+**When horizontal layers are necessary:**
+- Shared foundation required (auth before protected features)
+- Genuine type dependencies (Order needs User type)
+- Infrastructure setup (database before all features)
+
+**5. Output: Dependency map for each plan**
+
+For each plan, determine:
+- `depends_on: []` - plan IDs this plan requires (empty = parallel candidate)
+- `files_modified: []` - files this plan touches (for conflict detection)
+- `autonomous: true|false` - has checkpoints requiring user interaction?
+</step>
+
+<step name="assign_waves">
+**Compute wave numbers before writing plans.**
+
+Wave assignment algorithm (run in memory before writing any files):
+
+```
+waves = {}  # plan_id -> wave_number
+
+for each plan in plan_order:
+  if plan.depends_on is empty:
+    plan.wave = 1
+  else:
+    # Wave = max wave of dependencies + 1
+    plan.wave = max(waves[dep] for dep in plan.depends_on) + 1
+
+  waves[plan.id] = plan.wave
+```
+
+**Example:**
+
+```
+Plan 01: depends_on: []           → wave: 1
+Plan 02: depends_on: []           → wave: 1
+Plan 03: depends_on: ["01"]       → wave: 2
+Plan 04: depends_on: ["02"]       → wave: 2
+Plan 05: depends_on: ["03", "04"] → wave: 3
+```
+
+Store wave number with each plan in memory. Write to frontmatter in next step.
+</step>
+
+<step name="group_into_plans">
+**Group tasks into plans based on dependency waves and autonomy.**
+
+**Grouping rules:**
+
+1. **Same-wave tasks with no file conflicts → can be in parallel plans**
+2. **Tasks with shared files → must be in same plan or sequential plans**
+3. **Checkpoint tasks → mark plan as `autonomous: false`**
+4. **Each plan: 2-3 tasks max, single concern, ~50% context target**
+
+**Plan assignment algorithm:**
+
+```
+1. Start with Wave 1 tasks (no dependencies)
+2. Group into plans by:
+   - Feature affinity (vertical slice)
+   - File ownership (no conflicts)
+   - Checkpoint presence (group checkpoints with related auto tasks)
+3. Move to Wave 2 tasks, repeat
+4. Continue until all tasks assigned
+```
+
+**Example grouping:**
+
+```
+Tasks identified:
+- A: User model (Wave 1, auto)
+- B: Product model (Wave 1, auto)
+- C: User API (Wave 2, auto)
+- D: Product API (Wave 2, auto)
+- E: Dashboard (Wave 3, auto)
+- F: Verify Dashboard (Wave 3, checkpoint)
+
+Grouping into plans:
+Plan 01: [A, C] - User feature (model + API)
+         depends_on: [], autonomous: true
+
+Plan 02: [B, D] - Product feature (model + API)
+         depends_on: [], autonomous: true
+
+Plan 03: [E, F] - Dashboard (build + verify)
+         depends_on: ["01", "02"], autonomous: false
+
+Wave structure:
+  Wave 1 (parallel): Plan 01, Plan 02
+  Wave 2: Plan 03 (has checkpoint, runs after Wave 1)
+```
 </step>
 
 <step name="estimate_scope">
-After tasks, assess against quality degradation curve.
+After grouping, verify each plan fits context budget.
 
 **Check depth setting:**
 ```bash
@@ -302,8 +488,6 @@ cat .planning/config.json 2>/dev/null | grep depth
 For comprehensive depth:
 - Create MORE plans when the work warrants it, not bigger ones
 - If a phase has 15 tasks, that's 5-8 plans (not 3 plans with 5 tasks each)
-- Don't compress to look efficient—thoroughness is the goal
-- Let small phases stay small—don't pad to hit a number
 - Each plan stays focused: 2-3 tasks, single concern
 
 For quick depth:
@@ -314,13 +498,7 @@ For quick depth:
 
 **ALWAYS split if:** >3 tasks, multiple subsystems, >5 files in any task, complex domains (auth, payments).
 
-**If scope appropriate (2-3 tasks, single subsystem, <5 files/task):** Proceed to confirm_breakdown.
-
-**If large (>3 tasks):** Split by subsystem, dependency, complexity, or autonomous vs interactive.
-
 **Each plan must be:** 2-3 tasks max, ~50% context target, independently committable.
-
-**Autonomous optimization:** No checkpoints → subagent (fresh context). Has checkpoints → main context. Group autonomous work together.
 
 See ~/.claude/get-shit-done/references/scope-estimation.md for complete guidance.
 </step>
@@ -331,21 +509,38 @@ Auto-approve and proceed to write_phase_prompt.
 </if>
 
 <if mode="interactive">
-Present breakdown inline:
+Present breakdown with wave structure:
 
 ```
 Phase [X] breakdown:
 
-### Tasks ({phase}-01-PLAN.md)
-1. [Task] - [brief] [type]
-2. [Task] - [brief] [type]
+## Execution Waves
 
-Autonomous: [yes/no]
+**Wave 1 (parallel):**
+  {phase}-01: [Plan Name] [autonomous]
+    - Task: [brief]
+    - Task: [brief]
+
+  {phase}-02: [Plan Name] [autonomous]
+    - Task: [brief]
+    - Task: [brief]
+
+**Wave 2 (parallel):**
+  {phase}-03: [Plan Name] (depends: 01, 02) [autonomous]
+    - Task: [brief]
+
+**Wave 3:**
+  {phase}-04: [Plan Name] (depends: 03) [has checkpoint]
+    - Task: [brief]
+    - Checkpoint: [type]
+
+---
+Total: [N] plans in [M] waves
+Parallel plans: [X]
+Sequential plans: [Y]
 
 Does this look right? (yes / adjust / start over)
 ```
-
-For multiple plans, show each plan with its tasks.
 
 Wait for confirmation. If "adjust": revise. If "start over": return to gather_phase_context.
 </if>
@@ -359,16 +554,63 @@ Use template from `~/.claude/get-shit-done/templates/phase-prompt.md`.
 **Multiple plans:** Write separate files ({phase}-01-PLAN.md, {phase}-02-PLAN.md, etc.)
 
 Each plan follows template structure with:
-- Frontmatter (phase, plan, type, domain)
+- Frontmatter (phase, plan, type, depends_on, files_modified, autonomous, domain)
 - Objective (plan-specific goal, purpose, output)
-- Execution context (execute-phase.md, summary template, checkpoints.md if needed)
-- Context (@references to PROJECT, ROADMAP, STATE, codebase docs, RESEARCH/DISCOVERY/CONTEXT if exist, prior summaries, source files, prior decisions, deferred issues, concerns)
+- Execution context (execute-plan.md, summary template, checkpoints.md if needed)
+- Context (@references to PROJECT, ROADMAP, STATE, codebase docs, RESEARCH/DISCOVERY/CONTEXT if exist, prior summaries, source files)
 - Tasks (XML format with types)
 - Verification, Success criteria, Output specification
 
-**Context section population from frontmatter analysis:**
+**Plan frontmatter:**
 
-Inject automatically-assembled context package from read_project_history step:
+```yaml
+---
+phase: XX-name
+plan: NN
+type: execute
+wave: N                     # Execution wave (1, 2, 3...). Computed at plan time.
+depends_on: []              # Plan IDs this plan requires.
+files_modified: []          # Files this plan touches.
+autonomous: true            # false if plan has checkpoints requiring user interaction
+domain: [optional]
+user_setup: []              # Human-required setup (omit if empty)
+---
+```
+
+**User setup frontmatter (when external services involved):**
+
+```yaml
+user_setup:
+  - service: stripe
+    why: "Payment processing"
+    env_vars:
+      - name: STRIPE_SECRET_KEY
+        source: "Stripe Dashboard → Developers → API keys → Secret key"
+      - name: STRIPE_WEBHOOK_SECRET
+        source: "Stripe Dashboard → Developers → Webhooks → Signing secret"
+    account_setup:
+      - url: "https://dashboard.stripe.com/register"
+        skip_if: "Already have Stripe account"
+    dashboard_config:
+      - task: "Create webhook endpoint"
+        location: "Stripe Dashboard → Developers → Webhooks → Add endpoint"
+        details: "URL: https://[your-domain]/api/webhooks/stripe, Events: checkout.session.completed"
+    local_dev:
+      - "stripe listen --forward-to localhost:3000/api/webhooks/stripe"
+```
+
+**Automation-first rule:** Only include setup Claude literally cannot do:
+- Account creation (requires human signup)
+- Secret retrieval (requires dashboard access)
+- Dashboard configuration (requires human in browser)
+
+Do NOT include: npm install, code changes, file creation, CLI commands Claude can run.
+
+**Wave is pre-computed:** Wave numbers are assigned during planning (see `assign_waves` step). `/gsd:execute-phase` reads `wave` directly from frontmatter and groups plans by wave number. No runtime dependency analysis needed.
+
+**Context section - parallel-aware:**
+
+Only include prior plan SUMMARY references if this plan genuinely needs decisions/outputs:
 
 ```markdown
 <context>
@@ -376,27 +618,30 @@ Inject automatically-assembled context package from read_project_history step:
 @.planning/ROADMAP.md
 @.planning/STATE.md
 
-# Auto-selected based on dependency graph (from frontmatter):
-@.planning/phases/XX-name/YY-ZZ-SUMMARY.md
-@.planning/phases/AA-name/BB-CC-SUMMARY.md
+# Only reference prior plans if genuinely needed:
+# - This plan uses types/exports from prior plan
+# - This plan continues work from prior plan
+# - Prior plan made decision that affects this plan
+#
+# Do NOT reflexively chain: Plan 02 refs 01, Plan 03 refs 02...
+# Independent plans need no prior SUMMARY references.
 
-# Key files from frontmatter (relevant to this phase):
-@path/to/important/file.ts
-@path/to/another/file.ts
-
-**Tech stack available:** [extracted from frontmatter tech-stack.added]
-**Established patterns:** [extracted from frontmatter patterns-established]
-**Constraining decisions:**
-- [Phase X]: [decision from frontmatter]
-- [Phase Y]: [decision from frontmatter]
-
-**Issues being addressed:** [If any from ISSUES.md]
+@path/to/relevant/source.ts
 </context>
 ```
 
-This ensures every PLAN.md gets optimal context automatically assembled via dependency graph, making execution as informed as possible.
+**For plans with checkpoints:**
 
-For multi-plan phases: each plan has focused scope, references previous plan summaries (via frontmatter selection), last plan's success criteria includes "Phase X complete".
+Include checkpoint reference in execution_context:
+```markdown
+<execution_context>
+@~/.claude/get-shit-done/workflows/execute-plan.md
+@~/.claude/get-shit-done/templates/summary.md
+@~/.claude/get-shit-done/references/checkpoints.md
+</execution_context>
+```
+
+Checkpoint plans can still run in parallel waves. When they hit a checkpoint, they pause and return to the orchestrator. User responds, orchestrator resumes the agent.
 </step>
 
 <step name="git_commit">
@@ -413,8 +658,8 @@ git commit -m "$(cat <<'EOF'
 docs(${PHASE}): create phase plan
 
 Phase ${PHASE}: ${PHASE_NAME}
-- [N] plan(s) created
-- [X] total tasks defined
+- [N] plan(s) in [M] wave(s)
+- [X] parallel, [Y] sequential
 - Ready for execution
 EOF
 )"
@@ -425,24 +670,35 @@ Confirm: "Committed: docs(${PHASE}): create phase plan"
 
 <step name="offer_next">
 ```
-Phase plan created: .planning/phases/XX-name/{phase}-01-PLAN.md
-[X] tasks defined.
+Phase {X} planned: {N} plan(s) in {M} wave(s)
+
+## Wave Structure
+Wave 1 (parallel): {plan-01}, {plan-02}
+Wave 2: {plan-03}
+...
 
 ---
 
 ## Next Up
 
+[If 1 plan created:]
 **{phase}-01: [Plan Name]** - [objective summary]
 
 `/gsd:execute-plan .planning/phases/XX-name/{phase}-01-PLAN.md`
+
+[If 2+ plans created:]
+**Phase {X}: [Phase Name]** - {N} plans in {M} waves
+
+`/gsd:execute-phase {X}`
 
 <sub>`/clear` first - fresh context window</sub>
 
 ---
 
 **Also available:**
-- Review/adjust tasks before executing
-[If multiple plans: - View all plans: `ls .planning/phases/XX-name/*-PLAN.md`]
+- Review/adjust plans before executing
+[If 2+ plans: - `/gsd:execute-plan {phase}-01-PLAN.md` - run plans one at a time]
+[If 2+ plans: - View all plans: `ls .planning/phases/XX-name/*-PLAN.md`]
 
 ---
 ```
@@ -468,6 +724,7 @@ If you can't specify Files + Action + Verify + Done, the task is too vague.
 - No team assignments
 - No acceptance criteria committees
 - No sub-sub-sub tasks
+- **No reflexive sequential chaining** (Plan 02 depends on 01 "just because")
 Tasks are instructions for Claude, not Jira tickets.
 </anti_patterns>
 
@@ -476,13 +733,16 @@ Phase planning complete when:
 - [ ] STATE.md read, project history absorbed
 - [ ] Mandatory discovery completed (Level 0-3)
 - [ ] Prior decisions, issues, concerns synthesized
+- [ ] Dependency graph built (needs/creates for each task)
+- [ ] Tasks grouped into plans by wave, not by sequence
 - [ ] PLAN file(s) exist with XML structure
+- [ ] Each plan: depends_on, files_modified, autonomous in frontmatter
+- [ ] Each plan: user_setup declared if external services involved
 - [ ] Each plan: Objective, context, tasks, verification, success criteria, output
-- [ ] @context references included (STATE, RESEARCH/DISCOVERY if exist, relevant summaries)
 - [ ] Each plan: 2-3 tasks (~50% context)
 - [ ] Each task: Type, Files (if auto), Action, Verify, Done
 - [ ] Checkpoints properly structured
-- [ ] If RESEARCH.md exists: "don't hand-roll" items NOT being custom-built
+- [ ] Wave structure maximizes parallelism
 - [ ] PLAN file(s) committed to git
-- [ ] User knows next steps
+- [ ] User knows next steps and wave structure
 </success_criteria>

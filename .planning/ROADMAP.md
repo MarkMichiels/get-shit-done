@@ -17,6 +17,10 @@ None - this is internal GSD development following existing command/workflow/temp
 - [ ] **Phase 1: Templates & Structure** - Create codebase map templates and folder structure
 - [ ] **Phase 2: Map Codebase Command** - Build /gsd:map-codebase with parallel Explore agents
 - [ ] **Phase 3: Integration** - Wire brownfield support into existing GSD workflows
+- [x] **Phase 10: Parallel Phase Execution** - Separate single-plan vs multi-plan execution with intelligent parallelization
+- [x] **Phase 11: Parallel-Aware Planning** - Update plan-phase.md to create parallelizable plans when config enables it
+- [ ] **Phase 12: Changelog & Update Awareness** - Add changelog generation and /gsd:whats-new for version discovery
+- [x] **Phase 99: Test Parallel (THROWAWAY)** - Create 3 silly independent files to test parallel execution
 
 ## Phase Details
 
@@ -141,6 +145,88 @@ Components:
 **Details:**
 Community contribution from OracleGreyBeard. Original command works but doesn't follow GSD patterns (no workflow delegation, inline templates, verbose steps). Refactor to match conventions, then add /gsd:plan-fix to complete the verify → fix loop.
 
+### Phase 10: Parallel Phase Execution
+
+**Goal:** Implement proper parallel phase execution with clean separation between single-plan and multi-plan execution
+**Depends on:** Phase 9
+**Research:** Unlikely (adapting PR #43 patterns, existing GSD conventions)
+**Plans:** 4 plans
+
+Plans:
+- [x] 10-01: Rename execute-phase → execute-plan - Rename workflow file, update all 9 references across commands/workflows/templates
+- [x] 10-02: Create parallel execution workflow - New `workflows/execute-phase.md` with dependency analysis, parallel spawning, orchestrator commits
+- [x] 10-03: Create execute-phase command - New `commands/gsd/execute-phase.md` + parallelization config schema in templates/config.json
+- [x] 10-04: Update agent-history schema - Extend to v1.2 with parallel_group, granularity, task_results fields
+
+**Details:**
+Structural refactoring to separate concerns:
+- `/gsd:execute-plan` executes a single PLAN.md (current behavior, ~1,700 lines)
+- `/gsd:execute-phase` executes all plans in a phase with intelligent parallelization (~1,300 lines)
+
+Parallelization features (adapted from PR #43):
+- Dependency analysis via `requires`/`provides` frontmatter + `<files>` overlap detection
+- Parallel agent spawning for independent plans (respects max_concurrent_agents)
+- Orchestrator holds commits until all agents complete
+- Merge conflict detection as failsafe
+- Configurable via `.planning/config.json` parallelization section
+
+### Phase 11: Parallel-Aware Planning
+
+**Goal:** Update plan-phase.md to create plans optimized for parallel execution when parallelization is enabled
+**Depends on:** Phase 10
+**Research:** Unlikely (extending existing plan-phase workflow)
+**Plans:** 4 plans
+
+Plans:
+- [x] 11-01: Update phase-prompt template - Add parallelization frontmatter fields (parallelizable, depends_on, files_exclusive)
+- [x] 11-02: Add parallel-aware step to plan-phase workflow - Read config, restructure for vertical slices, document independence
+- [x] 11-03: Update execute-phase to use plan frontmatter - Use explicit markers instead of inference, backward compat
+- [x] 11-04: Documentation and examples - Update references, add parallel vs sequential planning examples
+
+**Details:**
+Current plan-phase.md has sequential execution bias - later plans reference earlier SUMMARY.md, file overlap is acceptable, no independence markers. When parallelization enabled in config.json, planning should:
+- Group by vertical slice (feature A, feature B) not workflow stage (setup → implement → test)
+- Avoid unnecessary inter-plan dependencies (only reference SUMMARY if genuinely needed)
+- Mark explicit file ownership per plan
+- Add frontmatter: `parallelizable: true/false`, `depends_on: []`, `files_exclusive: []`
+
+This enables execute-phase to produce more Wave 1 plans (true independence) instead of sequential chains.
+
+### Phase 12: Changelog & Update Awareness
+
+**Goal:** Add changelog generation to publish workflow and `/gsd:whats-new` command for users to discover changes
+**Depends on:** Phase 11
+**Research:** Unlikely (straightforward command + workflow additions)
+**Plans:** 3 plans
+
+Plans:
+- [x] 12-01: CHANGELOG.md foundation - Create changelog file, update installer to copy it
+- [ ] 12-02: Publish command update - Add changelog generation to gsd-publish-version.md
+- [x] 12-03: whats-new command - Create /gsd:whats-new with remote fetch and version comparison
+
+**Wave structure:**
+- Wave 1: 12-01 (foundation)
+- Wave 2: 12-02, 12-03 (parallel - both depend only on 12-01)
+
+**Details:**
+Users adopting GSD need visibility into what changed between versions. The publish workflow generates curated changelog entries (Claude-drafted, Lex-approved). `/gsd:whats-new` fetches from GitHub raw, compares to installed version, and prompts to update if behind.
+
+### Phase 99: Test Parallel (THROWAWAY)
+
+**Goal:** Create 3 independent silly files to test parallel execution - DELETE AFTER TESTING
+**Depends on:** Nothing (independent test)
+**Research:** No
+**Plans:** 3 plans (all parallelizable)
+
+Plans:
+- [x] 99-01: Create animal-facts.md - A file with 5 animal facts
+- [x] 99-02: Create dad-jokes.md - A file with 5 dad jokes
+- [x] 99-03: Create random-numbers.md - A file with 5 random numbers
+
+**Details:**
+Each plan touches completely different files, no dependencies, perfect for testing Wave 1 parallel execution.
+Files go in: `test-output/` (gitignored throwaway directory)
+
 ## Progress
 
 **Execution Order:**
@@ -156,4 +242,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 6. Frontmatter System Upgrade | 2/2 | Complete | 2026-01-05 |
 | 7. Backfill Existing Summaries | 1/1 | Complete | 2026-01-05 |
 | 8. Improve Roadmap System | 1/1 | Complete | 2026-01-05 |
-| 9. Integrate Verify-Work | 1/? | In Progress | - |
+| 9. Integrate Verify-Work | 1/1 | Complete | 2026-01-08 |
+| 10. Parallel Phase Execution | 4/4 | Complete | 2026-01-12 |
+| 11. Parallel-Aware Planning | 4/4 | Complete | 2026-01-12 |
+| 99. Test Parallel (THROWAWAY) | 3/3 | Complete | 2026-01-12 |
