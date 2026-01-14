@@ -38,15 +38,12 @@ This respects the iterative planning principle:
 - At end of cycle, branch is merged to main (or target branch)
 - Prevents unstable code from affecting main branch during development
 
-**Loop mode (default):**
-- After completing all phases and addressing issues, **execute `sleep 600` terminal command** (waits 10 minutes = 600 seconds)
-- This is a **real terminal wait** - not just a description
-- Check for new issues in ISSUES.md after wait completes
-- If new issues found, **restart build cycle from beginning** (setup_branch step) - this is a REAL restart
-- Continues looping until no new issues appear OR maximum cycles reached (6 cycles = 1 hour)
-- Each cycle is isolated on its own branch until merged
-- Uses `run_terminal_cmd` with `is_background: false` to execute the wait
-- Command ends after loop completes (either no new issues or max cycles reached)
+**Interactive mode:**
+- Workflow continues until user explicitly says "it's done" or "enough"
+- Status is tracked in `.planning/.build-all-status.json` for external monitoring
+- Review gate after each cycle for user feedback
+- Post-evaluation to improve the command itself
+- External Python script can monitor status and coordinate with debug-calculations
 </objective>
 
 <execution_context>
@@ -548,169 +545,259 @@ Pause and wait for user to resolve.
 ```
 </step>
 
-<step name="loop_mode">
-**Loop mode: Check for new issues and restart cycle (default):**
+<step name="review_gate">
+**Review gate: Pause for user review (Y/N/ENOUGH to proceed):**
 
-**This is the default behavior - build-all always loops until no new issues appear.**
+At this point, the build cycle should be complete:
+- ✅ All phases planned and executed
+- ✅ Development branch merged to main (if branch workflow used)
+- ✅ Status file updated
+- ❌ Not yet marked as "done" — that is expected
 
-**Store initial issue state (at start of cycle, in setup_branch or build_loop):**
+**Action:** Show summary and ask user to review:
+
+```
+## Build All Complete - Review
+
+**Status:** ✅ All phases complete
+
+**Summary:**
+- Planned and executed {N} phases
+- All summaries created
+- All commits made
+- All open issues addressed (if applicable)
+- Status file updated: .planning/.build-all-status.json
+
+**Files ready:**
+- All phase summaries in .planning/phases/
+- All code changes committed and merged
+
+Please review and respond:
+- **Y** = proceed to post-evaluation
+- **N** = collect corrections, apply fixes, then repeat review
+- **ENOUGH** = stop building, mark status as "done", workflow complete
+- **CONTINUE** = check for new issues from debug-calculations, restart if found
+```
+
+**After user response:**
+
+**If Y (proceed to post-evaluation):**
+- Proceed to `post_evaluation` step
+- Update status: `"status": "reviewing"`
+
+**If N (collect corrections):**
+- Apply fixes based on feedback
+- Repeat `review_gate` after fixes applied
+
+**If ENOUGH (stop building):**
+- Update status file: `"status": "done"`
+- Show final summary
+- **Do NOT continue** - user wants to stop
+- End workflow
+
+**If CONTINUE (check for new issues):**
+- Check if debug-calculations created new issues
+- If new issues found, return to `build_loop` step (restart cycle)
+- If no new issues, proceed to `post_evaluation`
+</step>
+
+<step name="post_evaluation">
+**Post-evaluation: Retrospective + improve this command (ALWAYS DO THIS):**
+
+At the end of the run, do a quick retrospective to make the next run faster and avoid repeating the same mistakes.
+
+**Write a short summary (5-10 lines):**
+- What was built (phases completed, issues addressed)
+- Which issues were created/resolved
+- What was unexpectedly tricky / slow
+- User feedback received (if any)
+- Coordination with debug-calculations (if applicable)
+
+**Then propose concrete command improvements:**
+- Which steps were unclear?
+- Which missing instructions caused you to search/guess?
+- Which recurring failure modes should be handled (status tracking, workspace detection, edge cases)?
+- What user feedback suggests improvements?
+- How can status tracking be improved?
+
+**Apply the improvements to this command file** (`commands/gsd/build-all.md`).
+
+**Finally ask:**
+- "**YES/NO**: may I commit these command-instruction changes?"
+
+If **YES**, commit with a separate commit message:
+
 ```bash
-# Store issue count and IDs at start of cycle
-if [ -f .planning/ISSUES.md ]; then
-  INITIAL_ISSUE_COUNT=$(awk '/^## Open Enhancements/,/^## / { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md)
-  grep -E '^### ISS-[0-9]+:' .planning/ISSUES.md | sed 's/^### //' | cut -d: -f1 > .planning/.build-all-initial-issues 2>/dev/null || true
-  echo "$INITIAL_ISSUE_COUNT" > .planning/.build-all-initial-issue-count 2>/dev/null || true
-else
-  echo "0" > .planning/.build-all-initial-issue-count 2>/dev/null || true
-  touch .planning/.build-all-initial-issues 2>/dev/null || true
-fi
+cd /path/to/get-shit-done
+git add commands/gsd/build-all.md
+git commit -m "chore(commands): improve build-all workflow based on retrospective"
 ```
 
-**After merge completes, start loop check:**
+If **NO**, do not commit (leave changes unstaged or revert).
+</step>
 
-```
-🔄 Loop Mode: Checking for new issues in 10 minutes...
-```
+<step name="status_tracking">
+**Status tracking: Update status and wait for user/external process:**
 
-1. **Wait 10 minutes using actual terminal command in loop:**
+**Status file location:** `.planning/.build-all-status.json`
 
-   **⚠️ CRITICAL: Use `run_terminal_cmd` to execute the loop - this is a REAL terminal command that actually waits and restarts.**
+**Purpose:** Allow external processes (like debug-calculations) to monitor build progress and coordinate issue resolution.
 
+**After merge completes, update status:**
+
+1. **Update status file:**
    ```bash
-   CYCLE=1
-   MAX_CYCLES=6  # 6 cycles × 10 min = 60 minutes (1 hour) max
-
-   while [ $CYCLE -le $MAX_CYCLES ]; do
-     echo "=== Loop Cycle $CYCLE/$MAX_CYCLES ==="
-     echo "Waiting 10 minutes for new issues to appear..."
-
-     # ACTUAL TERMINAL WAIT - executes sleep 600 (10 minutes)
-     sleep 600
-
-     # Check for new issues (compare current vs initial)
-     if [ -f .planning/ISSUES.md ]; then
-       CURRENT_ISSUE_COUNT=$(awk '/^## Open Enhancements/,/^## / { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md)
-       grep -E '^### ISS-[0-9]+:' .planning/ISSUES.md | sed 's/^### //' | cut -d: -f1 > .planning/.build-all-current-issues 2>/dev/null || true
-     else
-       CURRENT_ISSUE_COUNT=0
-       touch .planning/.build-all-current-issues 2>/dev/null || true
-     fi
-
-     INITIAL_ISSUE_COUNT=$(cat .planning/.build-all-initial-issue-count 2>/dev/null || echo "0")
-
-     # Compare counts
-     if [ "$CURRENT_ISSUE_COUNT" -gt "$INITIAL_ISSUE_COUNT" ]; then
-       echo "NEW_ISSUES_FOUND"
-       echo "Found $((CURRENT_ISSUE_COUNT - INITIAL_ISSUE_COUNT)) new issue(s). Restarting build cycle..."
-       break
-     else
-       # Check if issue IDs changed (even if count same)
-       if ! diff -q .planning/.build-all-initial-issues .planning/.build-all-current-issues >/dev/null 2>&1; then
-         echo "NEW_ISSUES_FOUND"
-         echo "Issue IDs changed. Restarting build cycle..."
-         break
-       else
-         echo "NO_NEW_ISSUES"
-         if [ $CYCLE -lt $MAX_CYCLES ]; then
-           echo "No new issues. Continuing loop..."
-           CYCLE=$((CYCLE + 1))
-         else
-           echo "Maximum cycles reached (6 cycles = 1 hour). Stopping loop."
-           break
-         fi
-       fi
-     fi
-   done
+   # Create status file
+   cat > .planning/.build-all-status.json <<EOF
+   {
+     "status": "ready",
+     "phase": "review",
+     "timestamp": "$(date -Iseconds)",
+     "branch": "$(git rev-parse --abbrev-ref HEAD)",
+     "phases_completed": $(ls .planning/phases/*/SUMMARY.md 2>/dev/null | wc -l),
+     "open_issues": $(awk '/^## Open Enhancements/,/^## / { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md 2>/dev/null || echo 0)
+   }
+   EOF
    ```
 
-   **Implementation in AI assistant:**
-   - Use `run_terminal_cmd` with `is_background: false` to execute the loop
-   - The `sleep 600` command will actually wait 10 minutes
-   - After each wait, check for new issues
-   - If new issues found, break loop and **restart from setup_branch step** (REAL restart)
-   - If no new issues and cycles remaining, continue loop
-   - If max cycles (6) reached, stop loop and end command
+2. **Status values:**
+   - `"status": "active"` - Currently building (workflow in progress)
+   - `"status": "ready"` - Build complete, waiting for review
+   - `"status": "waiting"` - Waiting for external process (debug-calculations) to create issues
+   - `"status": "done"` - User said "enough", build complete
 
-2. **Check for new issues:**
-   ```bash
-   # Count current open issues
-   if [ -f .planning/ISSUES.md ]; then
-     CURRENT_ISSUE_COUNT=$(awk '/^## Open Enhancements/,/^## / { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md)
-     grep -E '^### ISS-[0-9]+:' .planning/ISSUES.md | sed 's/^### //' | cut -d: -f1 > .planning/.build-all-current-issues 2>/dev/null || true
-   else
-     CURRENT_ISSUE_COUNT=0
-     touch .planning/.build-all-current-issues 2>/dev/null || true
-   fi
+3. **Show completion summary:**
+   ```
+   🎉 Build Cycle Complete!
 
-   # Load initial count
-   INITIAL_ISSUE_COUNT=$(cat .planning/.build-all-initial-issue-count 2>/dev/null || echo "0")
+   ✅ All phases planned and executed
+   📊 Total phases: {N}
+   📝 All summaries created
+   💾 All commits made
+   ✅ All open issues addressed (if applicable)
+   📄 Status file updated: .planning/.build-all-status.json
 
-   # Compare counts
-   if [ "$CURRENT_ISSUE_COUNT" -gt "$INITIAL_ISSUE_COUNT" ]; then
-     echo "NEW_ISSUES_FOUND"
-   else
-     # Check if issue IDs changed (even if count same)
-     if ! diff -q .planning/.build-all-initial-issues .planning/.build-all-current-issues >/dev/null 2>&1; then
-       echo "NEW_ISSUES_FOUND"
-     else
-       echo "NO_NEW_ISSUES"
-     fi
-   fi
+   Waiting for review or external process...
    ```
 
-2. **After loop completes, check result:**
+**External monitoring:**
+- Python script can read status file to check if build is ready
+- When status is "ready", external process (debug-calculations) can create issues
+- After issues created, user can restart build cycle
+- Status updates automatically at each phase transition
 
-3. **If new issues found:**
-   ```
-   🔍 New Issues Detected
+**⚠️ IMPORTANT: Launch monitoring script BEFORE starting workflow:**
 
-   Found {N} new issue(s) since last cycle:
-   {List new issues with ISS numbers by comparing issue ID lists}
+Before running `/gsd:build-all`, start the monitoring script in a separate terminal:
 
-   Restarting build cycle from beginning...
-   ```
-   - **Return to `setup_branch` step** (create new branch for new cycle) - this is a REAL restart
-   - Continue with full build workflow
-   - This creates a new isolated development cycle
-   - Update initial issue state for new cycle
-   - After cycle completes, loop again if new issues appear
+```bash
+# In a separate terminal window
+cd /home/mark/Repositories/livemathtex
+python scripts/monitor_debug_build.py --gsd-repo /home/mark/Repositories/get-shit-done
+```
 
-4. **If no new issues OR max cycles reached:**
-   ```
-   ✅ No new issues found (or maximum cycles reached)
+The monitoring script will:
+- Watch for status changes in both workflows
+- Coordinate between build-all and debug-calculations
+- Trigger workflows when the other is ready
+- Continue until both workflows are "done"
 
-   Build complete. All work merged to main.
-   No further action needed.
-   ```
-   - Clean up temporary files:
-     ```bash
-     rm -f .planning/.build-all-initial-issues .planning/.build-all-current-issues .planning/.build-all-initial-issue-count .planning/.build-all-original-branch .planning/.build-all-current-branch
-     ```
-   - **End command** - loop complete
+**Alternative:** Run monitoring script in background:
+```bash
+cd /home/mark/Repositories/livemathtex
+nohup python scripts/monitor_debug_build.py --gsd-repo /home/mark/Repositories/get-shit-done > monitor.log 2>&1 &
+```
+</step>
 
-**Loop termination:**
-- Loop continues until no new issues appear after a cycle OR maximum cycles reached (6 cycles = 1 hour)
-- Each cycle is isolated on its own branch
-- Each cycle merges to main before next cycle starts
-- Prevents unstable code from affecting main during development
-- Uses actual `sleep 600` terminal command to wait between cycles
-- **Command ends after loop completes** (either no new issues or max cycles reached)
+<step name="review_gate">
+**Review gate: Pause for user review (Y/N/ENOUGH to proceed):**
 
-**Maximum cycles:**
-- Default: 6 cycles (60 minutes total wait time)
-- After 6 cycles with no new issues, loop stops and command ends
-- Prevents infinite loops while allowing reasonable time for external fixes
+At this point, the build cycle should be complete:
+- ✅ All phases planned and executed
+- ✅ Development branch merged to main (if branch workflow used)
+- ✅ Status file updated
+- ❌ Not yet marked as "done" — that is expected
 
-**Manual termination:**
-- User can stop loop at any time
-- Current cycle completes and merges before stopping
-- The `sleep 600` command can be interrupted (Ctrl+C), but loop will continue checking
+**Action:** Show summary and ask user to review:
 
-**⚠️ CRITICAL:**
-- The loop uses **actual terminal commands** (`sleep 600`) to wait
-- The loop **actually restarts the workflow** from `setup_branch` step when new issues are found
-- This must be executed using `run_terminal_cmd` tool, not just described
-- Command ends after loop completes (either success or max cycles reached)
+```
+## Build All Complete - Review
+
+**Status:** ✅ All phases complete
+
+**Summary:**
+- Planned and executed {N} phases
+- All summaries created
+- All commits made
+- All open issues addressed (if applicable)
+- Status file updated: .planning/.build-all-status.json
+
+**Files ready:**
+- All phase summaries in .planning/phases/
+- All code changes committed and merged
+
+Please review and respond:
+- **Y** = proceed to post-evaluation
+- **N** = collect corrections, apply fixes, then repeat review
+- **ENOUGH** = stop building, mark status as "done", workflow complete
+- **CONTINUE** = check for new issues from debug-calculations, restart if found
+```
+
+**After user response:**
+
+**If Y (proceed to post-evaluation):**
+- Proceed to `post_evaluation` step
+- Update status: `"status": "reviewing"`
+
+**If N (collect corrections):**
+- Apply fixes based on feedback
+- Repeat `review_gate` after fixes applied
+
+**If ENOUGH (stop building):**
+- Update status file: `"status": "done"`
+- Show final summary
+- **Do NOT continue** - user wants to stop
+- End workflow
+
+**If CONTINUE (check for new issues):**
+- Check if debug-calculations created new issues
+- If new issues found, return to `build_loop` step (restart cycle)
+- If no new issues, proceed to `post_evaluation`
+</step>
+
+<step name="post_evaluation">
+**Post-evaluation: Retrospective + improve this command (ALWAYS DO THIS):**
+
+At the end of the run, do a quick retrospective to make the next run faster and avoid repeating the same mistakes.
+
+**Write a short summary (5-10 lines):**
+- What was built (phases completed, issues addressed)
+- Which issues were created/resolved
+- What was unexpectedly tricky / slow
+- User feedback received (if any)
+- Coordination with debug-calculations (if applicable)
+
+**Then propose concrete command improvements:**
+- Which steps were unclear?
+- Which missing instructions caused you to search/guess?
+- Which recurring failure modes should be handled (status tracking, workspace detection, edge cases)?
+- What user feedback suggests improvements?
+- How can status tracking be improved?
+
+**Apply the improvements to this command file** (`commands/gsd/build-all.md`).
+
+**Finally ask:**
+- "**YES/NO**: may I commit these command-instruction changes?"
+
+If **YES**, commit with a separate commit message:
+
+```bash
+cd /path/to/get-shit-done
+git add commands/gsd/build-all.md
+git commit -m "chore(commands): improve build-all workflow based on retrospective"
+```
+
+If **NO**, do not commit (leave changes unstaged or revert).
 </step>
 
 <step name="handle_checkpoints">
@@ -750,8 +837,9 @@ In interactive mode:
 - [ ] Open issues checked after all phases complete
 - [ ] User notified if open issues exist (not in roadmap)
 - [ ] Development branch merged to main (or target branch) after cycle complete
-- [ ] Loop mode checks for new issues (waits 10 minutes)
-- [ ] New build cycle starts if new issues found
-- [ ] Loop terminates when no new issues appear
+- [ ] Status file updated for external monitoring
+- [ ] Review gate implemented with Y/N/ENOUGH/CONTINUE options
+- [ ] CONTINUE option checks for new issues from debug-calculations
+- [ ] Post-evaluation completed and improvements applied
 - [ ] Final summary shows completion status and open issues count
 </success_criteria>
