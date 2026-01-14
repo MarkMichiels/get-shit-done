@@ -97,10 +97,12 @@ Clone the repository and run the installer locally:
 ```bash
 git clone https://github.com/glittercowboy/get-shit-done.git
 cd get-shit-done
-node bin/install.js --local
+node bin/install.js --local   # Install to ./.claude/ for testing
+node bin/install.js --global  # Install to ~/.claude/ for use
 ```
 
-Installs to `./.claude/` for testing modifications before contributing.
+Use `--local` to install to `./.claude/` for testing modifications before contributing.
+Use `--global` to install to `~/.claude/` for normal use from a local clone.
 
 </details>
 

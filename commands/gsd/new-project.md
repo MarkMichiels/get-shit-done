@@ -44,8 +44,15 @@ Creates `.planning/` with PROJECT.md and config.json.
    if [ -d .git ] || [ -f .git ]; then
        echo "Git repo exists in current directory"
    else
-       git init
-       echo "Initialized new git repo"
+       # Check if we're inside a parent git repo
+       PARENT_REPO=$(cd .. && git rev-parse --show-toplevel 2>/dev/null)
+       if [ -n "$PARENT_REPO" ]; then
+           echo "Parent git repo detected: $PARENT_REPO"
+           echo "Using parent repo - no need for git init"
+       else
+           git init
+           echo "Initialized new git repo"
+       fi
    fi
    ```
 

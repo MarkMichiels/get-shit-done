@@ -26,10 +26,22 @@ The git log should read like a changelog of what shipped, not a diary of plannin
 <git_check>
 
 ```bash
-[ -d .git ] && echo "GIT_EXISTS" || echo "NO_GIT"
+# Check if git repo exists in current directory
+if [ -d .git ] || [ -f .git ]; then
+    echo "GIT_EXISTS"
+else
+    # Check if we're inside a parent git repo
+    PARENT_REPO=$(cd .. && git rev-parse --show-toplevel 2>/dev/null)
+    if [ -n "$PARENT_REPO" ]; then
+        echo "PARENT_GIT_EXISTS"
+    else
+        echo "NO_GIT"
+    fi
+fi
 ```
 
-If NO_GIT: Run `git init` silently. GSD projects always get their own repo.
+If NO_GIT: Run `git init` silently. GSD projects get their own repo.
+If PARENT_GIT_EXISTS: Use parent repo - no git init needed. Commits will go to parent repo.
 </git_check>
 
 <commit_formats>
