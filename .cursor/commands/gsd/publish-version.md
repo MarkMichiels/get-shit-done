@@ -1,0 +1,1 @@
+../../../commands/gsd/publish-version.md

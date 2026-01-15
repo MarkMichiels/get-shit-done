@@ -1,0 +1,1 @@
+../../../commands/gsd/build-all.md

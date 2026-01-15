@@ -1,0 +1,34 @@
+#!/bin/bash
+
+# GSD Auto-Install Hook
+# Automatically installs GSD and creates symlinks after commits that modify GSD files
+
+# Get the repository root
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT" || exit 0
+
+# Check which files were changed in the last commit
+CHANGED_FILES=$(git diff-tree --no-commit-id --name-only -r HEAD)
+
+# Check if any GSD-related files were changed
+GSD_FILES_CHANGED=false
+
+for file in $CHANGED_FILES; do
+  case "$file" in
+    commands/gsd/*|get-shit-done/*|bin/install.js)
+      GSD_FILES_CHANGED=true
+      break
+      ;;
+  esac
+done
+
+# If GSD files were changed, run install
+if [ "$GSD_FILES_CHANGED" = true ]; then
+  echo ""
+  echo "🔄 GSD files changed - running auto-install..."
+  # Run install script (suppress banner but show important messages)
+  node bin/install.js --global 2>&1 | grep -E "(Installed|Created|Done)" || true
+  echo "✅ GSD auto-install complete"
+fi
+
+exit 0

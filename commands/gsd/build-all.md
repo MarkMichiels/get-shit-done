@@ -346,7 +346,7 @@ cat .planning/ISSUES.md
 
 Extract from "## Open Enhancements" section:
 - ISS numbers
-- Type (Bug/Performance/Refactoring/UX/Testing/Documentation/Accessibility)
+- Type (Bug/Feature/Performance/Refactoring/UX/Testing/Documentation/Accessibility)
 - Impact (High/Medium/Low)
 - Description
 - Suggested phase (if any)
@@ -357,15 +357,19 @@ Extract from "## Open Enhancements" section:
    - Issues with Type="Bug" AND Impact="High"
    - These are blocking and should be addressed
 
-2. **Count total issues:**
-   - All issues in Open Enhancements section
+2. **Count high/medium-impact features:**
+   - Issues with Type="Feature" AND (Impact="High" OR Impact="Medium")
+   - These are valuable enhancements that should be addressed
 
-3. **Determine strategy:**
+3. **Count total issues:**
+   - All issues in Open Enhancements section (including bugs, features, and other types)
+
+4. **Determine strategy:**
    - If 2+ high-impact bugs OR 3+ total issues → Create hotfix milestone
-   - If 1-2 issues (any type) → Add phase to current milestone
-   - If 0 high-impact bugs AND only low-impact enhancements → Can defer
+   - If 1+ high/medium-impact features OR 1-2 issues (any type) → Add phase to current milestone
+   - If 0 high-impact bugs AND 0 high/medium-impact features AND only low-impact enhancements → Can defer
 
-**If action needed (high-impact bugs exist OR user wants to address issues):**
+**If action needed (high-impact bugs exist OR high/medium-impact features exist OR user wants to address issues):**
 
 ```
 🔧 Open Issues Detected
@@ -375,6 +379,7 @@ All roadmap phases are complete, but {N} open issue(s) remain:
 {List issues with ISS numbers, type, impact, and brief descriptions}
 
 {If high-impact bugs: "⚠️  {X} high-impact bug(s) detected - these should be addressed"}
+{If high/medium-impact features: "✨ {X} high/medium-impact feature(s) detected - these should be addressed"}
 ```
 
 <if mode="yolo">
@@ -386,29 +391,37 @@ All roadmap phases are complete, but {N} open issue(s) remain:
 ```
 1. Determine next milestone version from ROADMAP.md (e.g., if last was v1.6 → v1.7)
 2. Analyze issues and group them logically:
-   - Group related bugs together (e.g., all Pint evaluator bugs)
-   - Group by component/area (e.g., unit conversion, constant handling)
-   - Create phase descriptions: "Fix {component/area} ({ISS-XXX, ISS-YYY})"
-3. Invoke: `SlashCommand("/gsd:new-milestone v{X.Y} Hotfix")`
+   - Group related issues together (e.g., all Pint evaluator bugs, all UI features)
+   - Group by component/area (e.g., unit conversion, constant handling, user interface)
+   - Create phase descriptions based on issue type:
+     - Bugs: "Fix {component/area} ({ISS-XXX, ISS-YYY})"
+     - Features: "Implement {feature description} ({ISS-XXX, ISS-YYY})"
+     - Other: "{action} {component/area} ({ISS-XXX, ISS-YYY})"
+3. Invoke: `SlashCommand("/gsd:new-milestone v{X.Y} Hotfix")` (or use "Enhancement" if mostly features)
 4. During milestone creation, provide phase breakdown:
    - For each group of related issues, create a phase
    - Example phases:
      - "Phase {N}: Fix Pint evaluator constants and handlers (ISS-025)"
-     - "Phase {N+1}: Fix compound unit rate calculations (ISS-026)"
-     - "Phase {N+2}: Fix currency unit conversion (ISS-027)"
+     - "Phase {N+1}: Implement dark mode toggle (ISS-042)"
+     - "Phase {N+2}: Fix compound unit rate calculations (ISS-026)"
    - Use issue descriptions to inform phase goals
 5. Wait for milestone creation to complete
 6. Reload roadmap to get new phases
 7. Continue to build_loop step (plan and execute new milestone phases)
 
-**If 1-2 issues (any type):**
+**If 1+ high/medium-impact features OR 1-2 issues (any type):**
 ```
 🚀 Adding phase to current milestone to address {N} open issue(s)
 ```
 1. Read ROADMAP.md to find last phase number
 2. Create phase description from issues:
-   - Single issue: Extract brief description from issue (e.g., "Fix Pint evaluator SymPy constants" from ISS-025)
-   - Multiple issues: Combine into logical description (e.g., "Fix unit calculation bugs (ISS-026, ISS-027)")
+   - Single issue: Extract brief description from issue
+     - Bug: "Fix {description}" (e.g., "Fix Pint evaluator SymPy constants" from ISS-025)
+     - Feature: "Implement {description}" (e.g., "Implement dark mode toggle" from ISS-042)
+     - Other: Use issue description directly
+   - Multiple issues: Combine into logical description
+     - Same type: "Fix {component} issues (ISS-026, ISS-027)" or "Implement {features} (ISS-042, ISS-043)"
+     - Mixed: "Address {component} (ISS-026, ISS-042)" or group by type
    - Use issue type and description to create meaningful phase name
 3. Invoke: `SlashCommand("/gsd:add-phase {description}")`
 4. Wait for phase creation to complete
@@ -424,7 +437,7 @@ All roadmap phases are complete, but {N} open issue(s) remain:
 <if mode="interactive">
 Use AskUserQuestion:
 - header: "Open Issues Found"
-- question: "{N} open issue(s) found. {If high-impact bugs: '{X} high-impact bug(s) detected.'} How would you like to proceed?"
+- question: "{N} open issue(s) found. {If high-impact bugs: '{X} high-impact bug(s) detected.'} {If high/medium-impact features: '{X} high/medium-impact feature(s) detected.'} How would you like to proceed?"
 - options:
   - "Address automatically" - Create milestone/phase and execute (same as YOLO mode)
   - "Review issues first" - Run /gsd:consider-issues to triage
