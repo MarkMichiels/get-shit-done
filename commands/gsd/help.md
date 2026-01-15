@@ -314,6 +314,18 @@ See what's changed since your installed version.
 
 Usage: `/gsd:whats-new`
 
+**`/gsd:publish-version [patch|minor|major]`**
+Automate version releases with changelog generation.
+
+- Analyzes commits since last tag
+- Generates changelog entry from commit types
+- Bumps version in package.json
+- Creates release commit and git tag
+- Pushes to remote (with confirmation)
+
+Usage: `/gsd:publish-version` (auto-detect bump)
+Usage: `/gsd:publish-version minor` (force minor bump)
+
 ## Files & Structure
 
 ```
