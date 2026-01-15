@@ -124,6 +124,67 @@ function copyWithPathReplacement(srcDir, destDir, pathPrefix) {
 }
 
 /**
+ * Create symlinks in .cursor/commands/gsd/ pointing to commands/gsd/
+ * This makes commands available in the repo itself for development/testing
+ */
+function createRepoSymlinks() {
+  const repoRoot = path.join(__dirname, '..');
+  const commandsSrc = path.join(repoRoot, 'commands', 'gsd');
+  const cursorCommandsDir = path.join(repoRoot, '.cursor', 'commands', 'gsd');
+
+  // Only create symlinks if we're in the repo and commands/gsd exists
+  if (!fs.existsSync(commandsSrc)) {
+    return;
+  }
+
+  // Create .cursor/commands/gsd directory
+  fs.mkdirSync(cursorCommandsDir, { recursive: true });
+
+  // Read all files in commands/gsd
+  const entries = fs.readdirSync(commandsSrc, { withFileTypes: true });
+  let symlinkCount = 0;
+
+  for (const entry of entries) {
+    // Skip directories (like _archive)
+    if (entry.isDirectory()) {
+      continue;
+    }
+
+    // Skip non-markdown files
+    if (!entry.name.endsWith('.md')) {
+      continue;
+    }
+
+    const sourceFile = path.join(commandsSrc, entry.name);
+    const targetFile = path.join(cursorCommandsDir, entry.name);
+    // Calculate relative path from .cursor/commands/gsd/ to commands/gsd/
+    const relativePath = path.relative(cursorCommandsDir, sourceFile);
+
+    // Remove existing file/symlink if it exists and is different
+    if (fs.existsSync(targetFile)) {
+      try {
+        const existingLink = fs.readlinkSync(targetFile);
+        if (existingLink === relativePath) {
+          // Symlink already correct, skip
+          continue;
+        }
+      } catch (e) {
+        // Not a symlink, remove it
+      }
+      fs.unlinkSync(targetFile);
+    }
+
+    // Create symlink
+    fs.symlinkSync(relativePath, targetFile);
+    symlinkCount++;
+  }
+
+  if (symlinkCount > 0) {
+    console.log(`  ${green}✓${reset} Created ${symlinkCount} symlink(s) in .cursor/commands/gsd/`);
+  }
+}
+
+/**
  * Install to the specified directory
  */
 function install(isGlobal) {
@@ -183,6 +244,9 @@ function install(isGlobal) {
   const versionDest = path.join(claudeDir, 'get-shit-done', 'VERSION');
   fs.writeFileSync(versionDest, pkg.version);
   console.log(`  ${green}✓${reset} Wrote VERSION (${pkg.version})`);
+
+  // Create repo-local symlinks for development
+  createRepoSymlinks();
 
   console.log(`
   ${green}Done!${reset} Launch Claude Code and run ${cyan}/gsd:help${reset}.
