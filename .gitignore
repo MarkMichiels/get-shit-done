@@ -6,5 +6,9 @@ CLAUDE.md
 .planning
 /research.history/
 /research.claude/
+
 # Cursor/VS Code Local History (automatic file versioning)
 .history/
+
+# Local test installs
+.claude/

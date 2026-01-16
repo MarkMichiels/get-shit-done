@@ -26,6 +26,20 @@ Output ONLY the reference content below. Do NOT add:
 3. `/gsd:plan-phase <number>` - Create detailed plan for first phase
 4. `/gsd:execute-plan <path>` - Execute the plan
 
+## Staying Updated
+
+GSD evolves fast. Check for updates periodically:
+
+```
+/gsd:whats-new
+```
+
+Shows what changed since your installed version. Update with:
+
+```bash
+npx get-shit-done-cc@latest
+```
+
 ## Core Workflow
 
 ```
@@ -153,15 +167,6 @@ Options (via `.planning/config.json` parallelization section):
 - `max_concurrent_agents`: Limit parallel agents (default: 3)
 - `skip_checkpoints`: Skip human checkpoints in background (default: true)
 - `min_plans_for_parallel`: Minimum plans to trigger parallelization (default: 2)
-
-**`/gsd:status [--wait]`**
-Check status of background agents from parallel execution.
-
-- Shows running/completed agents from agent-history.json
-- Uses TaskOutput to poll agent status
-- With `--wait`: blocks until all agents complete
-
-Usage: `/gsd:status` or `/gsd:status --wait`
 
 ### Roadmap Management
 
