@@ -1,1 +1,0 @@
-../../../commands/gsd/build-phase.md

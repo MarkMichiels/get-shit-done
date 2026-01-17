@@ -1,1 +1,0 @@
-../../../commands/gsd/pause-work.md

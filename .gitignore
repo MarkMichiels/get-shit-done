@@ -12,3 +12,6 @@ CLAUDE.md
 
 # Local test installs
 .claude/
+
+# Cursor commands (auto-generated symlinks)
+.cursor/commands/

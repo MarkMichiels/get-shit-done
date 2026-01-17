@@ -1,1 +1,0 @@
-../../../commands/gsd/create-issue.md

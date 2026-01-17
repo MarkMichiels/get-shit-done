@@ -1,1 +1,0 @@
-../../../commands/gsd/remove-phase.md

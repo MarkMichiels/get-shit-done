@@ -1,1 +1,0 @@
-../../../commands/gsd/verify-work.md

@@ -1,1 +1,0 @@
-../../../commands/gsd/add-phase.md

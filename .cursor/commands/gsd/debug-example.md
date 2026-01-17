@@ -1,1 +1,0 @@
-../../../commands/gsd/debug-example.md

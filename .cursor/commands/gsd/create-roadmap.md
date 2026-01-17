@@ -1,1 +1,0 @@
-../../../commands/gsd/create-roadmap.md
