@@ -151,6 +151,166 @@ cat .planning/config.json 2>/dev/null
 Parse mode (yolo/interactive) and gates.
 </step>
 
+<step name="preflight_check">
+**Pre-flight: Identify all external dependencies before building**
+
+Scan ALL phases in ROADMAP.md to detect blocking dependencies that require user action before build can succeed autonomously.
+
+**1. Scan roadmap for dependency indicators:**
+
+Read each phase description and look for:
+
+| Category | Keywords | Examples |
+|----------|----------|----------|
+| Authentication | OAuth, Firebase Auth, Google Sign-In, SSO, login | Firebase Console setup, OAuth consent screen |
+| Cloud Services | Firebase, GCP, AWS, Azure, Cloud Run, Cloud Functions | Project creation, API enabling, billing |
+| API Keys | API key, secret, token, credentials | Stripe, SendGrid, Twilio keys |
+| External Services | Modbus, SCADA, SSH, VPN, database | Network access, connection strings |
+| Manual Setup | console, dashboard, manual, download | Config file downloads, UI configuration |
+| Certificates | SSL, certificate, signing key | App signing, HTTPS certificates |
+| App Stores | Play Store, App Store, TestFlight | Developer accounts, app registration |
+
+**2. For each detected dependency, determine:**
+- **What**: Specific resource needed (API key, project, config file)
+- **When**: Which phase requires it
+- **How**: Setup instructions or link to documentation
+- **Blocking**: Can build proceed without it? (Yes/No)
+
+**3. Generate PREFLIGHT.md checklist:**
+
+```bash
+# Create preflight checklist if dependencies found
+cat > .planning/PREFLIGHT.md <<'EOF'
+# Pre-flight Checklist
+
+Generated: {timestamp}
+
+## Blocking Dependencies
+
+These must be completed before build-all can run autonomously.
+
+### Phase 1: {Phase Name}
+- [ ] **Firebase Project** - Create project in Firebase Console
+  - Go to: https://console.firebase.google.com/
+  - Action: Create new project "{project-name}"
+  - Required for: Authentication, Firestore
+
+- [ ] **Google Sign-In** - Enable authentication provider
+  - Go to: Firebase Console → Authentication → Sign-in method
+  - Action: Enable Google provider
+  - Required for: User login
+
+- [ ] **OAuth Consent Screen** - Configure for domain restriction
+  - Go to: GCP Console → APIs & Services → OAuth consent screen
+  - Action: Add authorized domain, set user type
+  - Required for: @axabio.com domain restriction
+
+- [ ] **Config Files** - Download and place in project
+  - `google-services.json` → android/app/
+  - `GoogleService-Info.plist` → ios/Runner/
+  - Required for: Firebase SDK initialization
+
+### Phase 2: {Phase Name}
+- [ ] **GCP Billing** - Enable billing on project
+  - Go to: GCP Console → Billing
+  - Action: Link billing account
+  - Required for: Cloud Run deployment
+
+...
+
+## Non-Blocking (Can be deferred)
+
+These can be completed later but will block specific features.
+
+### Phase 6: Hardware Monitoring
+- [ ] **OpenSCADA SSH** - Network access to SCADA server
+  - May need: VPN access, SSH keys
+  - Blocks: Real-time monitoring features
+
+---
+
+**Instructions:**
+1. Complete all "Blocking Dependencies" items
+2. Run `/gsd:build-all` again
+3. Non-blocking items can be completed when their phase is reached
+
+EOF
+```
+
+**4. Present to user:**
+
+<if dependencies_found="true">
+```
+⚠️  Pre-flight Check: External Dependencies Detected
+
+Before building autonomously, you need to set up:
+
+┌─────────────────────────────────────────────────────────┐
+│ BLOCKING (must complete before build)                   │
+├─────────────────────────────────────────────────────────┤
+│ Phase 1: Firebase Authentication                        │
+│   • Firebase project created                            │
+│   • Google Sign-In enabled                              │
+│   • OAuth consent screen configured                     │
+│   • google-services.json downloaded                     │
+│                                                         │
+│ Phase 2: Cloud Run Backend                              │
+│   • GCP billing enabled                                 │
+│   • Cloud Run API enabled                               │
+├─────────────────────────────────────────────────────────┤
+│ NON-BLOCKING (can defer)                                │
+├─────────────────────────────────────────────────────────┤
+│ Phase 6: OpenSCADA SSH access                           │
+│ Phase 7: App Store developer accounts                   │
+└─────────────────────────────────────────────────────────┘
+
+Checklist saved: .planning/PREFLIGHT.md
+```
+
+Use AskUserQuestion:
+- header: "Pre-flight Check"
+- question: "How do you want to proceed?"
+- options:
+  - "All done" - I've completed the blocking items, proceed with build
+  - "Show setup guides" - Display detailed setup instructions
+  - "Skip pre-flight" - Proceed anyway (will pause at checkpoints)
+  - "Exit" - Stop and complete setup first
+
+**If "All done":**
+- Continue to setup_branch step
+- Build proceeds autonomously
+
+**If "Show setup guides":**
+- Display contents of PREFLIGHT.md
+- Ask again after user reviews
+
+**If "Skip pre-flight":**
+- Warn: "Build will pause at checkpoints requiring manual setup"
+- Continue to setup_branch step
+- Plans with external dependencies should have `autonomous: false`
+
+**If "Exit":**
+- Show: "Complete items in .planning/PREFLIGHT.md, then run /gsd:build-all again"
+- Exit
+</if>
+
+<if dependencies_found="false">
+```
+✅ Pre-flight Check: No blocking dependencies detected
+
+All phases can be built autonomously.
+```
+Continue to setup_branch step.
+</if>
+
+<if mode="yolo">
+- Still generate PREFLIGHT.md for reference
+- Show summary but don't ask for confirmation
+- Log warning if blocking dependencies found
+- Proceed to build (will hit checkpoints if setup incomplete)
+</if>
+</step>
+
 <step name="setup_branch">
 **Setup development branch (default workflow):**
 
@@ -748,6 +908,8 @@ In interactive mode:
 <success_criteria>
 - [ ] Planning structure verified
 - [ ] Roadmap exists (or project initialized via /gsd:new-project)
+- [ ] Pre-flight check completed (dependencies identified, PREFLIGHT.md generated)
+- [ ] Blocking dependencies resolved (or user chose to skip)
 - [ ] Development branch created (if not already on feature branch)
 - [ ] All phases identified from roadmap
 - [ ] Each phase planned before execution
