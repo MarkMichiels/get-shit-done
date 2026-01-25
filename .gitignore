@@ -1,11 +1,11 @@
 node_modules/
-package-lock.json
 .DS_Store
 TO-DOS.md
 CLAUDE.md
 .planning
 /research.history/
 /research.claude/
+commands.html
 
 # Cursor/VS Code Local History (automatic file versioning)
 .history/
@@ -13,5 +13,9 @@ CLAUDE.md
 # Local test installs
 .claude/
 
-# Cursor commands (auto-generated symlinks)
-.cursor/commands/
+# Build artifacts (committed to npm, not git)
+hooks/dist/
+
+# Animation assets
+animation/
+*.gif

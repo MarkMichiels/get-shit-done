@@ -156,6 +156,17 @@ For each gap in the Gaps section, add artifacts and missing fields:
 
 Update status in frontmatter to "diagnosed".
 
+**Check planning config:**
+
+```bash
+COMMIT_PLANNING_DOCS=$(cat .planning/config.json 2>/dev/null | grep -o '"commit_docs"[[:space:]]*:[[:space:]]*[^,}]*' | grep -o 'true\|false' || echo "true")
+git check-ignore -q .planning 2>/dev/null && COMMIT_PLANNING_DOCS=false
+```
+
+**If `COMMIT_PLANNING_DOCS=false`:** Skip git operations
+
+**If `COMMIT_PLANNING_DOCS=true` (default):**
+
 Commit the updated UAT.md:
 ```bash
 git add ".planning/phases/XX-name/{phase}-UAT.md"
@@ -164,10 +175,13 @@ git commit -m "docs({phase}): add root causes from diagnosis"
 </step>
 
 <step name="report_results">
-**Report diagnosis results:**
+**Report diagnosis results and hand off:**
 
+Display:
 ```
-## Diagnosis Complete
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ GSD ► DIAGNOSIS COMPLETE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 | Gap (Truth) | Root Cause | Files |
 |-------------|------------|-------|
@@ -175,46 +189,20 @@ git commit -m "docs({phase}): add root causes from diagnosis"
 | Reply button positioned correctly | CSS flex order incorrect | ReplyButton.tsx |
 | Delete removes comment | API missing auth header | api/comments.ts |
 
-Debug sessions saved to ${DEBUG_DIR}/
+Debug sessions: ${DEBUG_DIR}/
 
----
-
-Next steps:
-- `/gsd:plan-phase {phase} --gaps` — Create fix plans from diagnosed gaps
-- Review debug sessions for details
+Proceeding to plan fixes...
 ```
-</step>
 
-<step name="offer_next">
-**Offer gap closure:**
-
-```
-Root causes identified. Ready to plan fixes?
-
-`/gsd:plan-phase {phase} --gaps`
-
-The fix plans will use diagnosed root causes for targeted fixes.
-```
+Return to verify-work orchestrator for automatic planning.
+Do NOT offer manual next steps - verify-work handles the rest.
 </step>
 
 </process>
 
 <context_efficiency>
-**Orchestrator context:** ~15%
-- Parse UAT.md gaps
-- Fill template strings
-- Spawn parallel Task calls
-- Collect results
-- Update UAT.md
-
-**Each debug agent:** Fresh 200k context
-- Loads full debug workflow
-- Loads debugging references
-- Investigates with full capacity
-- Returns root cause
-
-**No symptom gathering.** Agents start with symptoms pre-filled from UAT.
-**No fix application.** Agents only diagnose - plan-phase --gaps handles fixes.
+Agents start with symptoms pre-filled from UAT (no symptom gathering).
+Agents only diagnose—plan-phase --gaps handles fixes (no fix application).
 </context_efficiency>
 
 <failure_handling>
@@ -239,5 +227,5 @@ The fix plans will use diagnosed root causes for targeted fixes.
 - [ ] Root causes collected from all agents
 - [ ] UAT.md gaps updated with artifacts and missing
 - [ ] Debug sessions saved to ${DEBUG_DIR}/
-- [ ] User knows next steps (plan-phase --gaps)
+- [ ] Hand off to verify-work for automatic planning
 </success_criteria>

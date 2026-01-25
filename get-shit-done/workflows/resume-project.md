@@ -7,11 +7,12 @@ Use this workflow when:
 </trigger>
 
 <purpose>
-Instantly restore full project context and present clear status.
-Enables seamless session continuity for fully autonomous workflows.
-
-"Where were we?" should have an immediate, complete answer.
+Instantly restore full project context so "Where were we?" has an immediate, complete answer.
 </purpose>
+
+<required_reading>
+@~/.claude/get-shit-done/references/continuation-format.md
+</required_reading>
 
 <process>
 
@@ -121,7 +122,7 @@ Present complete project status to user:
     Task: [task description from agent-history.json]
     Interrupted: [timestamp]
 
-    Resume with: /gsd:resume-task
+    Resume with: Task tool (resume parameter with agent ID)
 
 [If pending todos exist:]
 📋 [N] pending todos — /gsd:check-todos to review
@@ -141,7 +142,7 @@ Present complete project status to user:
 Based on project state, determine the most logical next action:
 
 **If interrupted agent exists:**
-→ Primary: Resume interrupted agent (/gsd:resume-task)
+→ Primary: Resume interrupted agent (Task tool with resume parameter)
 → Option: Start fresh (abandon agent work)
 
 **If .continue-here file exists:**
@@ -178,11 +179,9 @@ Present contextual options based on project state:
 What would you like to do?
 
 [Primary action based on state - e.g.:]
-1. Resume interrupted agent (/gsd:resume-task) [if interrupted agent found]
+1. Resume interrupted agent [if interrupted agent found]
    OR
-1. Resume from checkpoint (/gsd:execute-plan .planning/phases/XX-name/.continue-here-02-01.md)
-   OR
-1. Execute next plan (/gsd:execute-plan .planning/phases/XX-name/02-02-PLAN.md)
+1. Execute phase (/gsd:execute-phase {phase})
    OR
 1. Discuss Phase 3 context (/gsd:discuss-phase 3) [if CONTEXT.md missing]
    OR
@@ -198,7 +197,7 @@ What would you like to do?
 **Note:** When offering phase planning, check for CONTEXT.md existence first:
 
 ```bash
-ls .planning/phases/XX-name/CONTEXT.md 2>/dev/null
+ls .planning/phases/XX-name/*-CONTEXT.md 2>/dev/null
 ```
 
 If missing, suggest discuss-phase before plan. If exists, offer plan directly.
@@ -217,7 +216,7 @@ Based on user selection, route to appropriate workflow:
 
   **{phase}-{plan}: [Plan Name]** — [objective from PLAN.md]
 
-  `/gsd:execute-plan [path]`
+  `/gsd:execute-phase {phase}`
 
   <sub>`/clear` first → fresh context window</sub>
 
@@ -288,17 +287,12 @@ This handles cases where:
   </reconstruction>
 
 <quick_resume>
-For users who want minimal friction:
-
-If user says just "continue" or "go":
-
+If user says "continue" or "go":
 - Load state silently
 - Determine primary action
 - Execute immediately without presenting options
 
 "Continuing from [state]... [action]"
-
-This enables fully autonomous "just keep going" workflow.
 </quick_resume>
 
 <success_criteria>
