@@ -197,52 +197,24 @@ Error: Planning failed - no PLAN.md files created.
 Exit.
 </step>
 
-<step name="execute_all_plans">
+<step name="execute_phase">
 **Execute all plans in the phase:**
 
-Find all plans in the phase:
-```bash
-ls .planning/phases/{phase-dir}/*-PLAN.md | sort
+Use the standard execute-phase command which handles:
+- Wave-based parallel execution
+- Verification after completion
+- SUMMARY.md creation for each plan
+
+```
+⚙️  Executing Phase {X}: {Phase Name}
+/gsd:execute-phase {phase-number}
 ```
 
-For each plan in order:
+Wait for execution to complete.
 
-1. **Check if already executed:**
-   ```bash
-   # Check if SUMMARY exists
-   ls .planning/phases/{phase-dir}/{plan}-SUMMARY.md
-   ```
-
-   If SUMMARY exists → skip (already executed)
-   If no SUMMARY → execute
-
-2. **Execute plan:**
-   ```
-   Executing {plan}: {plan-name}
-   /gsd:execute-plan .planning/phases/{phase-dir}/{plan}-PLAN.md
-   ```
-
-3. **Wait for execution to complete**
-
-4. **Check result:**
-   - If success → continue to next plan
-   - If checkpoint:decision or checkpoint:human-action → pause, wait for user
-   - If error → stop, show error
-
-5. **Update progress:**
-   ```
-   ✅ {plan} complete
-   Continuing to next plan...
-   ```
-
-**After all plans in phase complete:**
+**After phase execution complete:**
 ```
 ✅ Phase {X} complete!
-
-All plans executed:
-- {plan-1}
-- {plan-2}
-- {plan-3}
 
 Ready to plan next phase.
 ```

@@ -43,7 +43,7 @@ This respects the iterative planning principle:
 - Status is tracked in `.planning/.build-all-status.json` for external monitoring
 - Review gate after each cycle for user feedback
 - Post-evaluation to improve the command itself
-- External Python script can monitor status and coordinate with debug-calculations
+- External process can optionally monitor status file for coordination
 </objective>
 
 <execution_context>
@@ -95,14 +95,14 @@ Create roadmap now?
 <if mode="interactive">
 Use AskUserQuestion:
 - header: "Roadmap Required"
-- question: "No ROADMAP.md found. Create roadmap now?"
+- question: "No ROADMAP.md found. Initialize project now?"
 - options:
-  - "Create roadmap" - Run /gsd:create-roadmap
+  - "Initialize project" - Run /gsd:new-project (creates PROJECT.md, ROADMAP.md, etc.)
   - "Cancel" - Exit build-all
 
-If "Create roadmap":
-- Invoke: `SlashCommand("/gsd:create-roadmap")`
-- Wait for roadmap creation to complete
+If "Initialize project":
+- Invoke: `SlashCommand("/gsd:new-project")`
+- Wait for project initialization to complete
 - Continue to load_roadmap step
 
 If "Cancel":
@@ -113,7 +113,7 @@ If "Cancel":
 ```
 ❌ No roadmap found. Cannot build without roadmap.
 
-Run /gsd:create-roadmap first, then retry /gsd:build-all
+Run /gsd:new-project first to initialize the project, then retry /gsd:build-all
 ```
 Exit.
 </if>
@@ -136,7 +136,7 @@ Count total phases and identify which need work.
 ```
 ⚠️  Roadmap exists but contains no phases.
 
-Update ROADMAP.md with phases, or run /gsd:create-roadmap to regenerate.
+Update ROADMAP.md with phases manually, or delete .planning/ and run /gsd:new-project to start fresh.
 ```
 Exit.
 </step>
@@ -296,11 +296,11 @@ Wait for confirmation.
    ```
    ⚙️  Executing Phase {X}: {Phase Name}
    ```
-   Execute all unexecuted plans:
+   Execute the phase (handles all plans with wave-based parallelization):
    ```
-   /gsd:execute-plan .planning/phases/{phase-dir}/{plan}-PLAN.md
+   /gsd:execute-phase {X}
    ```
-   (Repeat for each plan without SUMMARY.md)
+   Wait for phase execution to complete.
 
 4. **If phase complete:**
    ```
@@ -440,7 +440,7 @@ Use AskUserQuestion:
 - question: "{N} open issue(s) found. {If high-impact bugs: '{X} high-impact bug(s) detected.'} {If high/medium-impact features: '{X} high/medium-impact feature(s) detected.'} How would you like to proceed?"
 - options:
   - "Address automatically" - Create milestone/phase and execute (same as YOLO mode)
-  - "Review issues first" - Run /gsd:consider-issues to triage
+  - "Show issues" - Display full issue details for manual review
   - "Skip for now" - Mark complete, issues remain open
 
 **If "Address automatically" selected:**
@@ -448,10 +448,11 @@ Use AskUserQuestion:
 - Create milestone or phase based on issue count/severity
 - Continue to build_loop step
 
-**If "Review issues first" selected:**
-- Invoke: `SlashCommand("/gsd:consider-issues")`
-- After consider-issues completes, re-check for open issues
-- If issues remain, offer to address them (loop back to this step)
+**If "Show issues" selected:**
+- Display contents of ISSUES.md "## Open Enhancements" section
+- Ask user: "Address these issues now, or skip?"
+- If "Address": Follow YOLO mode logic
+- If "Skip": Continue to completion message
 
 **If "Skip for now" selected:**
 - Continue to completion message (with warning)
@@ -589,7 +590,7 @@ Please review and respond:
 - **Y** = proceed to post-evaluation
 - **N** = collect corrections, apply fixes, then repeat review
 - **ENOUGH** = stop building, mark status as "done", workflow complete
-- **CONTINUE** = check for new issues from debug-calculations, restart if found
+- **CONTINUE** = check for new issues in ISSUES.md, restart cycle if found
 ```
 
 **After user response:**
@@ -609,7 +610,8 @@ Please review and respond:
 - End workflow
 
 **If CONTINUE (check for new issues):**
-- Check if debug-calculations created new issues
+- Re-read ISSUES.md and count open issues
+- Compare with count at start of cycle
 - If new issues found, return to `build_loop` step (restart cycle)
 - If no new issues, proceed to `post_evaluation`
 </step>
@@ -624,7 +626,7 @@ At the end of the run, do a quick retrospective to make the next run faster and 
 - Which issues were created/resolved
 - What was unexpectedly tricky / slow
 - User feedback received (if any)
-- Coordination with debug-calculations (if applicable)
+- External process coordination (if applicable)
 
 **Then propose concrete command improvements:**
 - Which steps were unclear?
@@ -654,7 +656,7 @@ If **NO**, do not commit (leave changes unstaged or revert).
 
 **Status file location:** `.planning/.build-all-status.json`
 
-**Purpose:** Allow external processes (like debug-calculations) to monitor build progress and coordinate issue resolution.
+**Purpose:** Allow external processes (test runners, CI, debug workflows) to monitor build progress and coordinate issue resolution.
 
 **After merge completes, update status:**
 
@@ -676,7 +678,7 @@ If **NO**, do not commit (leave changes unstaged or revert).
 2. **Status values:**
    - `"status": "active"` - Currently building (workflow in progress)
    - `"status": "ready"` - Build complete, waiting for review
-   - `"status": "waiting"` - Waiting for external process (debug-calculations) to create issues
+   - `"status": "waiting"` - Waiting for external process to create issues
    - `"status": "done"` - User said "enough", build complete
 
 3. **Show completion summary:**
@@ -695,122 +697,28 @@ If **NO**, do not commit (leave changes unstaged or revert).
 
 **External monitoring:**
 - Python script can read status file to check if build is ready
-- When status is "ready", external process (debug-calculations) can create issues
+- When status is "ready", external process can run tests and create issues
 - After issues created, user can restart build cycle
 - Status updates automatically at each phase transition
 
-**⚠️ IMPORTANT: Launch monitoring script BEFORE starting workflow:**
+**Optional: External monitoring for coordination**
 
-Before running `/gsd:build-all`, start the monitoring script in a separate terminal:
+If you have an external process (e.g., test runner, debug workflow, CI) that creates issues:
 
-```bash
-# In a separate terminal window
-cd /home/mark/Repositories/livemathtex
-python scripts/monitor_debug_build.py --gsd-repo /home/mark/Repositories/get-shit-done
-```
+1. External process monitors `.planning/.build-all-status.json`
+2. When status is "ready", external process can:
+   - Run tests/validation
+   - Create new issues in `.planning/ISSUES.md`
+   - Update its own status file (e.g., `.planning/.external-status.json`)
+3. User can use CONTINUE option to check for new issues and restart cycle
 
-The monitoring script will:
-- Watch for status changes in both workflows
-- Coordinate between build-all and debug-calculations
-- Trigger workflows when the other is ready
-- Continue until both workflows are "done"
+This enables closed-loop development where:
+- build-all builds the code
+- External process validates and creates issues
+- build-all addresses issues
+- Loop continues until no new issues
 
-**Alternative:** Run monitoring script in background:
-```bash
-cd /home/mark/Repositories/livemathtex
-nohup python scripts/monitor_debug_build.py --gsd-repo /home/mark/Repositories/get-shit-done > monitor.log 2>&1 &
-```
-</step>
-
-<step name="review_gate">
-**Review gate: Pause for user review (Y/N/ENOUGH to proceed):**
-
-At this point, the build cycle should be complete:
-- ✅ All phases planned and executed
-- ✅ Development branch merged to main (if branch workflow used)
-- ✅ Status file updated
-- ❌ Not yet marked as "done" — that is expected
-
-**Action:** Show summary and ask user to review:
-
-```
-## Build All Complete - Review
-
-**Status:** ✅ All phases complete
-
-**Summary:**
-- Planned and executed {N} phases
-- All summaries created
-- All commits made
-- All open issues addressed (if applicable)
-- Status file updated: .planning/.build-all-status.json
-
-**Files ready:**
-- All phase summaries in .planning/phases/
-- All code changes committed and merged
-
-Please review and respond:
-- **Y** = proceed to post-evaluation
-- **N** = collect corrections, apply fixes, then repeat review
-- **ENOUGH** = stop building, mark status as "done", workflow complete
-- **CONTINUE** = check for new issues from debug-calculations, restart if found
-```
-
-**After user response:**
-
-**If Y (proceed to post-evaluation):**
-- Proceed to `post_evaluation` step
-- Update status: `"status": "reviewing"`
-
-**If N (collect corrections):**
-- Apply fixes based on feedback
-- Repeat `review_gate` after fixes applied
-
-**If ENOUGH (stop building):**
-- Update status file: `"status": "done"`
-- Show final summary
-- **Do NOT continue** - user wants to stop
-- End workflow
-
-**If CONTINUE (check for new issues):**
-- Check if debug-calculations created new issues
-- If new issues found, return to `build_loop` step (restart cycle)
-- If no new issues, proceed to `post_evaluation`
-</step>
-
-<step name="post_evaluation">
-**Post-evaluation: Retrospective + improve this command (ALWAYS DO THIS):**
-
-At the end of the run, do a quick retrospective to make the next run faster and avoid repeating the same mistakes.
-
-**Write a short summary (5-10 lines):**
-- What was built (phases completed, issues addressed)
-- Which issues were created/resolved
-- What was unexpectedly tricky / slow
-- User feedback received (if any)
-- Coordination with debug-calculations (if applicable)
-
-**Then propose concrete command improvements:**
-- Which steps were unclear?
-- Which missing instructions caused you to search/guess?
-- Which recurring failure modes should be handled (status tracking, workspace detection, edge cases)?
-- What user feedback suggests improvements?
-- How can status tracking be improved?
-
-**Apply the improvements to this command file** (`commands/gsd/build-all.md`).
-
-**Finally ask:**
-- "**YES/NO**: may I commit these command-instruction changes?"
-
-If **YES**, commit with a separate commit message:
-
-```bash
-cd /path/to/get-shit-done
-git add commands/gsd/build-all.md
-git commit -m "chore(commands): improve build-all workflow based on retrospective"
-```
-
-If **NO**, do not commit (leave changes unstaged or revert).
+**Note:** External monitoring is optional. Without it, build-all still works as a one-shot full project builder.
 </step>
 
 <step name="handle_checkpoints">
@@ -839,7 +747,7 @@ In interactive mode:
 
 <success_criteria>
 - [ ] Planning structure verified
-- [ ] Roadmap exists (or created via /gsd:create-roadmap)
+- [ ] Roadmap exists (or project initialized via /gsd:new-project)
 - [ ] Development branch created (if not already on feature branch)
 - [ ] All phases identified from roadmap
 - [ ] Each phase planned before execution
@@ -852,7 +760,7 @@ In interactive mode:
 - [ ] Development branch merged to main (or target branch) after cycle complete
 - [ ] Status file updated for external monitoring
 - [ ] Review gate implemented with Y/N/ENOUGH/CONTINUE options
-- [ ] CONTINUE option checks for new issues from debug-calculations
+- [ ] CONTINUE option checks for new issues in ISSUES.md
 - [ ] Post-evaluation completed and improvements applied
 - [ ] Final summary shows completion status and open issues count
 </success_criteria>
