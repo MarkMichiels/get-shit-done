@@ -2,20 +2,22 @@
 
 # GET SHIT DONE
 
-**A light-weight and powerful meta-prompting, context engineering and spec-driven development system for Claude Code and OpenCode.**
+**A light-weight and powerful meta-prompting, context engineering and spec-driven development system for Claude Code, OpenCode, and Gemini CLI.**
 
 **Solves context rot — the quality degradation that happens as Claude fills its context window.**
 
 [![npm version](https://img.shields.io/npm/v/get-shit-done-cc?style=for-the-badge&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/get-shit-done-cc)
 [![npm downloads](https://img.shields.io/npm/dm/get-shit-done-cc?style=for-the-badge&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/get-shit-done-cc)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Server-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/5JJgD5svVS)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/5JJgD5svVS)
+[![X (Twitter)](https://img.shields.io/badge/X-@gsd__foundation-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/gsd_foundation)
+[![$GSD Token](https://img.shields.io/badge/$GSD-Dexscreener-1C1C1C?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMCIgZmlsbD0iIzAwRkYwMCIvPjwvc3ZnPg==&logoColor=00FF00)](https://dexscreener.com/solana/dwudwjvan7bzkw9zwlbyv6kspdlvhwzrqy6ebk8xzxkv)
 [![GitHub stars](https://img.shields.io/github/stars/glittercowboy/get-shit-done?style=for-the-badge&logo=github&color=181717)](https://github.com/glittercowboy/get-shit-done)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
 <br>
 
 ```bash
-npx get-shit-done-cc
+npx get-shit-done-cc@latest
 ```
 
 **Works on Mac, Windows, and Linux.**
@@ -73,14 +75,14 @@ People who want to describe what they want and have it built correctly — witho
 ## Getting Started
 
 ```bash
-npx get-shit-done-cc
+npx get-shit-done-cc@latest
 ```
 
 The installer prompts you to choose:
-1. **Runtime** — Claude Code, OpenCode, or both
+1. **Runtime** — Claude Code, OpenCode, Gemini, or all
 2. **Location** — Global (all projects) or local (current project only)
 
-Verify with `/gsd:help` inside your Claude Code or OpenCode interface.
+Verify with `/gsd:help` inside your chosen runtime.
 
 ### Staying Updated
 
@@ -99,14 +101,17 @@ npx get-shit-done-cc --claude --global   # Install to ~/.claude/
 npx get-shit-done-cc --claude --local    # Install to ./.claude/
 
 # OpenCode (open source, free models)
-npx get-shit-done-cc --opencode --global # Install to ~/.opencode/
+npx get-shit-done-cc --opencode --global # Install to ~/.config/opencode/
 
-# Both runtimes
-npx get-shit-done-cc --both --global     # Install to both directories
+# Gemini CLI
+npx get-shit-done-cc --gemini --global   # Install to ~/.gemini/
+
+# All runtimes
+npx get-shit-done-cc --all --global      # Install to all directories
 ```
 
 Use `--global` (`-g`) or `--local` (`-l`) to skip the location prompt.
-Use `--claude`, `--opencode`, or `--both` to skip the runtime prompt.
+Use `--claude`, `--opencode`, `--gemini`, or `--all` to skip the runtime prompt.
 
 </details>
 
@@ -418,7 +423,7 @@ You're never locked in. The system adapts.
 
 | Command | What it does |
 |---------|--------------|
-| `/gsd:new-project` | Full initialization: questions → research → requirements → roadmap |
+| `/gsd:new-project [--auto]` | Full initialization: questions → research → requirements → roadmap |
 | `/gsd:discuss-phase [N]` | Capture implementation decisions before planning |
 | `/gsd:plan-phase [N]` | Research + plan + verify for a phase |
 | `/gsd:execute-phase <N>` | Execute all plans in parallel waves, verify when complete |
@@ -523,6 +528,54 @@ Use `/gsd:settings` to toggle these, or override per-invocation:
 | `parallelization.enabled` | `true` | Run independent plans simultaneously |
 | `planning.commit_docs` | `true` | Track `.planning/` in git |
 
+### Git Branching
+
+Control how GSD handles branches during execution.
+
+| Setting | Options | Default | What it does |
+|---------|---------|---------|--------------|
+| `git.branching_strategy` | `none`, `phase`, `milestone` | `none` | Branch creation strategy |
+| `git.phase_branch_template` | string | `gsd/phase-{phase}-{slug}` | Template for phase branches |
+| `git.milestone_branch_template` | string | `gsd/{milestone}-{slug}` | Template for milestone branches |
+
+**Strategies:**
+- **`none`** — Commits to current branch (default GSD behavior)
+- **`phase`** — Creates a branch per phase, merges at phase completion
+- **`milestone`** — Creates one branch for entire milestone, merges at completion
+
+At milestone completion, GSD offers squash merge (recommended) or merge with history.
+
+---
+
+## Security
+
+### Protecting Sensitive Files
+
+GSD's codebase mapping and analysis commands read files to understand your project. **Protect files containing secrets** by adding them to Claude Code's deny list:
+
+1. Open Claude Code settings (`.claude/settings.json` or global)
+2. Add sensitive file patterns to the deny list:
+
+```json
+{
+  "permissions": {
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/secrets/*)",
+      "Read(**/*credential*)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)"
+    ]
+  }
+}
+```
+
+This prevents Claude from reading these files entirely, regardless of what commands you run.
+
+> [!IMPORTANT]
+> GSD includes built-in protections against committing secrets, but defense-in-depth is best practice. Deny read access to sensitive files as a first line of defense.
+
 ---
 
 ## Troubleshooting
@@ -568,10 +621,14 @@ This removes all GSD commands, agents, hooks, and settings while preserving your
 
 ## Community Ports
 
+OpenCode and Gemini CLI are now natively supported via `npx get-shit-done-cc`.
+
+These community ports pioneered multi-runtime support:
+
 | Project | Platform | Description |
 |---------|----------|-------------|
-| [gsd-opencode](https://github.com/rokicool/gsd-opencode) | OpenCode | GSD adapted for OpenCode CLI |
-| [gsd-gemini](https://github.com/uberfuzzy/gsd-gemini) | Gemini CLI | GSD adapted for Google's Gemini CLI |
+| [gsd-opencode](https://github.com/rokicool/gsd-opencode) | OpenCode | Original OpenCode adaptation |
+| gsd-gemini (archived) | Gemini CLI | Original Gemini adaptation by uberfuzzy |
 
 ---
 
