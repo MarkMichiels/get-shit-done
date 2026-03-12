@@ -9,6 +9,7 @@ allowed-tools:
   - Grep
   - Write
   - Task
+user-invocable: true
 ---
 
 <objective>

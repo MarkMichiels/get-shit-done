@@ -8,6 +8,7 @@ allowed-tools:
   - Bash
   - Task
   - AskUserQuestion
+user-invocable: true
 ---
 <objective>
 Start a new milestone: questioning → research (optional) → requirements → roadmap.

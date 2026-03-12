@@ -1,6 +1,7 @@
 ---
 name: gsd:publish-version
 description: Automate version releases with changelog generation
+user-invocable: true
 ---
 
 <objective>

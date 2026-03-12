@@ -4,6 +4,7 @@ description: Update GSD to latest version with changelog display
 allowed-tools:
   - Bash
   - AskUserQuestion
+user-invocable: true
 ---
 
 <objective>

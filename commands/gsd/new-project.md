@@ -8,6 +8,7 @@ allowed-tools:
   - Write
   - Task
   - AskUserQuestion
+user-invocable: true
 ---
 <context>
 **Flags:**

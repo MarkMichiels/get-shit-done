@@ -7,6 +7,7 @@ allowed-tools:
   - Write
   - AskUserQuestion
   - SlashCommand
+user-invocable: true
 ---
 
 <objective>

@@ -9,6 +9,7 @@ allowed-tools:
   - Bash
   - Task
   - Write
+user-invocable: true
 ---
 <objective>
 Verify milestone achieved its definition of done. Check requirements coverage, cross-phase integration, and end-to-end flows.

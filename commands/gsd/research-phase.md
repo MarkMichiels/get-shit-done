@@ -6,6 +6,7 @@ allowed-tools:
   - Read
   - Bash
   - Task
+user-invocable: true
 ---
 
 <objective>

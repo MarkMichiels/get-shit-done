@@ -12,6 +12,7 @@ allowed-tools:
   - Task
   - TodoWrite
   - AskUserQuestion
+user-invocable: true
 ---
 <objective>
 Execute all plans in a phase using wave-based parallel execution.

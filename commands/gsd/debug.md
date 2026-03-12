@@ -7,6 +7,7 @@ allowed-tools:
   - Bash
   - Task
   - AskUserQuestion
+user-invocable: true
 ---
 
 <objective>

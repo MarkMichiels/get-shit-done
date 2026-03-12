@@ -7,6 +7,7 @@ allowed-tools:
   - Glob
   - Grep
   - SlashCommand
+user-invocable: true
 ---
 
 <objective>

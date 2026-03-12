@@ -1,6 +1,7 @@
 ---
 description: Reapply local modifications after a GSD update
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, AskUserQuestion
+user-invocable: true
 ---
 
 <purpose>

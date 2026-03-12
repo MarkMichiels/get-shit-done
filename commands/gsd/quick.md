@@ -11,6 +11,7 @@ allowed-tools:
   - Bash
   - Task
   - AskUserQuestion
+user-invocable: true
 ---
 <objective>
 Execute small, ad-hoc tasks with GSD guarantees (atomic commits, STATE.md tracking) while skipping optional agents (research, plan-checker, verifier).

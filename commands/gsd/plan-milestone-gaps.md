@@ -8,6 +8,7 @@ allowed-tools:
   - Glob
   - Grep
   - AskUserQuestion
+user-invocable: true
 ---
 <objective>
 Create all phases necessary to close gaps identified by `/gsd:audit-milestone`.

@@ -10,6 +10,7 @@ allowed-tools:
   - Edit
   - Write
   - Task
+user-invocable: true
 ---
 <objective>
 Validate built features through conversational testing with persistent state.

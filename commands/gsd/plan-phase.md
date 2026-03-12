@@ -12,6 +12,7 @@ allowed-tools:
   - Task
   - WebFetch
   - mcp__context7__*
+user-invocable: true
 ---
 <objective>
 Create executable phase prompts (PLAN.md files) for a roadmap phase with integrated research and verification.

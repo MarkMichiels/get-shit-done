@@ -7,6 +7,7 @@ allowed-tools:
   - Edit
   - Write
   - AskUserQuestion
+user-invocable: true
 ---
 
 <objective>
