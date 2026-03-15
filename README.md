@@ -2,13 +2,16 @@
 
 # GET SHIT DONE
 
-**A light-weight and powerful meta-prompting, context engineering and spec-driven development system for Claude Code, OpenCode, and Gemini CLI.**
+**English** · [简体中文](README.zh-CN.md)
+
+**A light-weight and powerful meta-prompting, context engineering and spec-driven development system for Claude Code, OpenCode, Gemini CLI, and Codex.**
 
 **Solves context rot — the quality degradation that happens as Claude fills its context window.**
 
 [![npm version](https://img.shields.io/npm/v/get-shit-done-cc?style=for-the-badge&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/get-shit-done-cc)
 [![npm downloads](https://img.shields.io/npm/dm/get-shit-done-cc?style=for-the-badge&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/get-shit-done-cc)
-[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/5JJgD5svVS)
+[![Tests](https://img.shields.io/github/actions/workflow/status/glittercowboy/get-shit-done/test.yml?branch=main&style=for-the-badge&logo=github&label=Tests)](https://github.com/glittercowboy/get-shit-done/actions/workflows/test.yml)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/gsd)
 [![X (Twitter)](https://img.shields.io/badge/X-@gsd__foundation-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/gsd_foundation)
 [![$GSD Token](https://img.shields.io/badge/$GSD-Dexscreener-1C1C1C?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMCIgZmlsbD0iIzAwRkYwMCIvPjwvc3ZnPg==&logoColor=00FF00)](https://dexscreener.com/solana/dwudwjvan7bzkw9zwlbyv6kspdlvhwzrqy6ebk8xzxkv)
 [![GitHub stars](https://img.shields.io/github/stars/glittercowboy/get-shit-done?style=for-the-badge&logo=github&color=181717)](https://github.com/glittercowboy/get-shit-done)
@@ -38,7 +41,7 @@ npx get-shit-done-cc@latest
 
 **Trusted by engineers at Amazon, Google, Shopify, and Webflow.**
 
-[Why I Built This](#why-i-built-this) · [How It Works](#how-it-works) · [Commands](#commands) · [Why It Works](#why-it-works)
+[Why I Built This](#why-i-built-this) · [How It Works](#how-it-works) · [Commands](#commands) · [Why It Works](#why-it-works) · [User Guide](docs/USER-GUIDE.md)
 
 </div>
 
@@ -79,10 +82,16 @@ npx get-shit-done-cc@latest
 ```
 
 The installer prompts you to choose:
-1. **Runtime** — Claude Code, OpenCode, Gemini, or all
+1. **Runtime** — Claude Code, OpenCode, Gemini, Codex, or all
 2. **Location** — Global (all projects) or local (current project only)
 
-Verify with `/gsd:help` inside your chosen runtime.
+Verify with:
+- Claude Code / Gemini: `/gsd:help`
+- OpenCode: `/gsd-help`
+- Codex: `$gsd-help`
+
+> [!NOTE]
+> Codex installation uses skills (`skills/gsd-*/SKILL.md`) rather than custom prompts.
 
 ### Staying Updated
 
@@ -106,12 +115,16 @@ npx get-shit-done-cc --opencode --global # Install to ~/.config/opencode/
 # Gemini CLI
 npx get-shit-done-cc --gemini --global   # Install to ~/.gemini/
 
+# Codex (skills-first)
+npx get-shit-done-cc --codex --global    # Install to ~/.codex/
+npx get-shit-done-cc --codex --local     # Install to ./.codex/
+
 # All runtimes
 npx get-shit-done-cc --all --global      # Install to all directories
 ```
 
 Use `--global` (`-g`) or `--local` (`-l`) to skip the location prompt.
-Use `--claude`, `--opencode`, `--gemini`, or `--all` to skip the runtime prompt.
+Use `--claude`, `--opencode`, `--gemini`, `--codex`, or `--all` to skip the runtime prompt.
 
 </details>
 
@@ -223,7 +236,7 @@ For each area you select, it asks until you're satisfied. The output — `CONTEX
 
 The deeper you go here, the more the system builds what you actually want. Skip it and you get reasonable defaults. Use it and you get *your* vision.
 
-**Creates:** `{phase}-CONTEXT.md`
+**Creates:** `{phase_num}-CONTEXT.md`
 
 ---
 
@@ -241,7 +254,7 @@ The system:
 
 Each plan is small enough to execute in a fresh context window. No degradation, no "I'll be more concise now."
 
-**Creates:** `{phase}-RESEARCH.md`, `{phase}-{N}-PLAN.md`
+**Creates:** `{phase_num}-RESEARCH.md`, `{phase_num}-{N}-PLAN.md`
 
 ---
 
@@ -260,7 +273,39 @@ The system:
 
 Walk away, come back to completed work with clean git history.
 
-**Creates:** `{phase}-{N}-SUMMARY.md`, `{phase}-VERIFICATION.md`
+**How Wave Execution Works:**
+
+Plans are grouped into "waves" based on dependencies. Within each wave, plans run in parallel. Waves run sequentially.
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  PHASE EXECUTION                                                   │
+├────────────────────────────────────────────────────────────────────┤
+│                                                                    │
+│  WAVE 1 (parallel)          WAVE 2 (parallel)          WAVE 3      │
+│  ┌─────────┐ ┌─────────┐    ┌─────────┐ ┌─────────┐    ┌─────────┐ │
+│  │ Plan 01 │ │ Plan 02 │ →  │ Plan 03 │ │ Plan 04 │ →  │ Plan 05 │ │
+│  │         │ │         │    │         │ │         │    │         │ │
+│  │ User    │ │ Product │    │ Orders  │ │ Cart    │    │ Checkout│ │
+│  │ Model   │ │ Model   │    │ API     │ │ API     │    │ UI      │ │
+│  └─────────┘ └─────────┘    └─────────┘ └─────────┘    └─────────┘ │
+│       │           │              ↑           ↑              ↑      │
+│       └───────────┴──────────────┴───────────┘              │      │
+│              Dependencies: Plan 03 needs Plan 01            │      │
+│                          Plan 04 needs Plan 02              │      │
+│                          Plan 05 needs Plans 03 + 04        │      │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+**Why waves matter:**
+- Independent plans → Same wave → Run in parallel
+- Dependent plans → Later wave → Wait for dependencies
+- File conflicts → Sequential plans or same plan
+
+This is why "vertical slices" (Plan 01: User feature end-to-end) parallelize better than "horizontal layers" (Plan 01: All models, Plan 02: All APIs).
+
+**Creates:** `{phase_num}-{N}-SUMMARY.md`, `{phase_num}-VERIFICATION.md`
 
 ---
 
@@ -283,7 +328,7 @@ The system:
 
 If everything passes, you move on. If something's broken, you don't manually debug — you just run `/gsd:execute-phase` again with the fix plans it created.
 
-**Creates:** `{phase}-UAT.md`, fix plans if issues found
+**Creates:** `{phase_num}-UAT.md`, fix plans if issues found
 
 ---
 
@@ -300,6 +345,8 @@ If everything passes, you move on. If something's broken, you don't manually deb
 ```
 
 Loop **discuss → plan → execute → verify** until milestone complete.
+
+If you want faster intake during discussion, use `/gsd:discuss-phase <n> --batch` to answer a small grouped set of questions at once instead of one-by-one.
 
 Each phase gets your input (discuss), proper research (plan), clean execution (execute), and human verification (verify). Context stays fresh. Quality stays high.
 
@@ -424,8 +471,8 @@ You're never locked in. The system adapts.
 | Command | What it does |
 |---------|--------------|
 | `/gsd:new-project [--auto]` | Full initialization: questions → research → requirements → roadmap |
-| `/gsd:discuss-phase [N]` | Capture implementation decisions before planning |
-| `/gsd:plan-phase [N]` | Research + plan + verify for a phase |
+| `/gsd:discuss-phase [N] [--auto]` | Capture implementation decisions before planning |
+| `/gsd:plan-phase [N] [--auto]` | Research + plan + verify for a phase |
 | `/gsd:execute-phase <N>` | Execute all plans in parallel waves, verify when complete |
 | `/gsd:verify-work [N]` | Manual user acceptance testing ¹ |
 | `/gsd:audit-milestone` | Verify milestone achieved its definition of done |
@@ -445,7 +492,7 @@ You're never locked in. The system adapts.
 
 | Command | What it does |
 |---------|--------------|
-| `/gsd:map-codebase` | Analyze existing codebase before new-project |
+| `/gsd:map-codebase [area]` | Analyze existing codebase before new-project |
 
 ### Phase Management
 
@@ -473,7 +520,8 @@ You're never locked in. The system adapts.
 | `/gsd:add-todo [desc]` | Capture idea for later |
 | `/gsd:check-todos` | List pending todos |
 | `/gsd:debug [desc]` | Systematic debugging with persistent state |
-| `/gsd:quick` | Execute ad-hoc task with GSD guarantees |
+| `/gsd:quick [--full] [--discuss]` | Execute ad-hoc task with GSD guarantees (`--full` adds plan-checking and verification, `--discuss` gathers context first) |
+| `/gsd:health [--repair]` | Validate `.planning/` directory integrity, auto-repair with `--repair` |
 
 <sup>¹ Contributed by reddit user OracleGreyBeard</sup>
 
@@ -481,14 +529,14 @@ You're never locked in. The system adapts.
 
 ## Configuration
 
-GSD stores project settings in `.planning/config.json`. Configure during `/gsd:new-project` or update later with `/gsd:settings`.
+GSD stores project settings in `.planning/config.json`. Configure during `/gsd:new-project` or update later with `/gsd:settings`. For the full config schema, workflow toggles, git branching options, and per-agent model breakdown, see the [User Guide](docs/USER-GUIDE.md#configuration-reference).
 
 ### Core Settings
 
 | Setting | Options | Default | What it controls |
 |---------|---------|---------|------------------|
 | `mode` | `yolo`, `interactive` | `interactive` | Auto-approve vs confirm at each step |
-| `depth` | `quick`, `standard`, `comprehensive` | `standard` | Planning thoroughness (phases × plans) |
+| `granularity` | `coarse`, `standard`, `fine` | `standard` | Phase granularity — how finely scope is sliced (phases × plans) |
 
 ### Model Profiles
 
@@ -516,6 +564,7 @@ These spawn additional agents during planning/execution. They improve quality bu
 | `workflow.research` | `true` | Researches domain before planning each phase |
 | `workflow.plan_check` | `true` | Verifies plans achieve phase goals before execution |
 | `workflow.verifier` | `true` | Confirms must-haves were delivered after execution |
+| `workflow.auto_advance` | `false` | Auto-chain discuss → plan → execute without stopping |
 
 Use `/gsd:settings` to toggle these, or override per-invocation:
 - `/gsd:plan-phase --skip-research`
@@ -581,8 +630,9 @@ This prevents Claude from reading these files entirely, regardless of what comma
 ## Troubleshooting
 
 **Commands not found after install?**
-- Restart Claude Code to reload slash commands
+- Restart your runtime to reload commands/skills
 - Verify files exist in `~/.claude/commands/gsd/` (global) or `./.claude/commands/gsd/` (local)
+- For Codex, verify skills exist in `~/.codex/skills/gsd-*/SKILL.md` (global) or `./.codex/skills/gsd-*/SKILL.md` (local)
 
 **Commands not working as expected?**
 - Run `/gsd:help` to verify installation
@@ -609,10 +659,12 @@ To remove GSD completely:
 # Global installs
 npx get-shit-done-cc --claude --global --uninstall
 npx get-shit-done-cc --opencode --global --uninstall
+npx get-shit-done-cc --codex --global --uninstall
 
 # Local installs (current project)
 npx get-shit-done-cc --claude --local --uninstall
 npx get-shit-done-cc --opencode --local --uninstall
+npx get-shit-done-cc --codex --local --uninstall
 ```
 
 This removes all GSD commands, agents, hooks, and settings while preserving your other configurations.
@@ -621,7 +673,7 @@ This removes all GSD commands, agents, hooks, and settings while preserving your
 
 ## Community Ports
 
-OpenCode and Gemini CLI are now natively supported via `npx get-shit-done-cc`.
+OpenCode, Gemini CLI, and Codex are now natively supported via `npx get-shit-done-cc`.
 
 These community ports pioneered multi-runtime support:
 
