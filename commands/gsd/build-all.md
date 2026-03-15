@@ -1,6 +1,6 @@
 ---
 name: gsd:build-all
-description: Build entire project automatically (plan → execute each phase sequentially)
+description: Build entire project automatically (plan → execute each phase sequentially) using git worktree isolation
 allowed-tools:
   - Read
   - Bash
@@ -32,12 +32,14 @@ This respects the iterative planning principle:
 - Code builds incrementally
 - Context accumulates naturally through SUMMARY.md files
 
-**Branch-based workflow (default):**
-- All development happens on a feature branch (isolated from main)
-- Branch is created at start of build cycle
-- All commits go to the feature branch
-- At end of cycle, branch is merged to main (or target branch)
-- Prevents unstable code from affecting main branch during development
+**Worktree isolation (default):**
+- All development happens in a **git worktree** in a sibling directory
+- Main branch is NEVER touched during development
+- Crons, other processes, and parallel sessions on main keep running undisturbed
+- Worktree gets its own branch, own working directory, own symlinks
+- At end of cycle, worktree branch is merged back to main
+- Worktree is cleaned up after successful merge
+- If something goes wrong, recovery is straightforward (see Worktree Recovery below)
 
 **Interactive mode:**
 - Workflow continues until user explicitly says "it's done" or "enough"
@@ -45,11 +47,41 @@ This respects the iterative planning principle:
 - Review gate after each cycle for user feedback
 - Post-evaluation to improve the command itself
 - External process can optionally monitor status file for coordination
+
+## Worktree Recovery
+
+If something goes wrong mid-build:
+
+1. Check worktree status:
+   ```bash
+   git worktree list
+   ```
+
+2. Remove broken worktree:
+   ```bash
+   git worktree remove /path/to/worktree --force
+   ```
+
+3. Delete orphaned branch:
+   ```bash
+   git branch -D branch-name
+   ```
+
+4. Start fresh:
+   ```
+   /gsd:build-all
+   ```
+
+5. If worktree directory remains after removal:
+   ```bash
+   rm -rf /path/to/worktree
+   git worktree prune
+   ```
 </objective>
 
 <execution_context>
-@~/.claude/get-shit-done/workflows/plan-phase.md
-@~/.claude/get-shit-done/workflows/execute-phase.md
+@/home/mark/.claude/get-shit-done/workflows/plan-phase.md
+@/home/mark/.claude/get-shit-done/workflows/execute-phase.md
 </execution_context>
 
 <context>
@@ -86,7 +118,7 @@ Exit.
 
 **If NO_ROADMAP:**
 ```
-❌ No roadmap found.
+No roadmap found.
 
 A roadmap is required to build the project. The roadmap defines all phases that need to be completed.
 
@@ -112,7 +144,7 @@ If "Cancel":
 
 <if mode="yolo">
 ```
-❌ No roadmap found. Cannot build without roadmap.
+No roadmap found. Cannot build without roadmap.
 
 Run /gsd:new-project first to initialize the project, then retry /gsd:build-all
 ```
@@ -135,7 +167,7 @@ Count total phases and identify which need work.
 
 **If roadmap is empty or has no phases:**
 ```
-⚠️  Roadmap exists but contains no phases.
+Roadmap exists but contains no phases.
 
 Update ROADMAP.md with phases manually, or delete .planning/ and run /gsd:new-project to start fresh.
 ```
@@ -150,6 +182,8 @@ cat .planning/config.json 2>/dev/null
 ```
 
 Parse mode (yolo/interactive) and gates.
+
+**Store research config:** Check if `workflow.research` is `true` in config.json. If true, set `RESEARCH_ALWAYS=true`. This flag is used in the build_loop to ensure research is always checked.
 </step>
 
 <step name="preflight_check">
@@ -191,31 +225,10 @@ Generated: {timestamp}
 These must be completed before build-all can run autonomously.
 
 ### Phase 1: {Phase Name}
-- [ ] **Firebase Project** - Create project in Firebase Console
-  - Go to: https://console.firebase.google.com/
-  - Action: Create new project "{project-name}"
-  - Required for: Authentication, Firestore
-
-- [ ] **Google Sign-In** - Enable authentication provider
-  - Go to: Firebase Console → Authentication → Sign-in method
-  - Action: Enable Google provider
-  - Required for: User login
-
-- [ ] **OAuth Consent Screen** - Configure for domain restriction
-  - Go to: GCP Console → APIs & Services → OAuth consent screen
-  - Action: Add authorized domain, set user type
-  - Required for: @axabio.com domain restriction
-
-- [ ] **Config Files** - Download and place in project
-  - `google-services.json` → android/app/
-  - `GoogleService-Info.plist` → ios/Runner/
-  - Required for: Firebase SDK initialization
-
-### Phase 2: {Phase Name}
-- [ ] **GCP Billing** - Enable billing on project
-  - Go to: GCP Console → Billing
-  - Action: Link billing account
-  - Required for: Cloud Run deployment
+- [ ] **{Dependency}** - {Description}
+  - Go to: {URL or location}
+  - Action: {What to do}
+  - Required for: {What depends on it}
 
 ...
 
@@ -223,10 +236,7 @@ These must be completed before build-all can run autonomously.
 
 These can be completed later but will block specific features.
 
-### Phase 6: Hardware Monitoring
-- [ ] **OpenSCADA SSH** - Network access to SCADA server
-  - May need: VPN access, SSH keys
-  - Blocks: Real-time monitoring features
+...
 
 ---
 
@@ -242,28 +252,16 @@ EOF
 
 <if dependencies_found="true">
 ```
-⚠️  Pre-flight Check: External Dependencies Detected
+Pre-flight Check: External Dependencies Detected
 
 Before building autonomously, you need to set up:
 
-┌─────────────────────────────────────────────────────────┐
-│ BLOCKING (must complete before build)                   │
-├─────────────────────────────────────────────────────────┤
-│ Phase 1: Firebase Authentication                        │
-│   • Firebase project created                            │
-│   • Google Sign-In enabled                              │
-│   • OAuth consent screen configured                     │
-│   • google-services.json downloaded                     │
-│                                                         │
-│ Phase 2: Cloud Run Backend                              │
-│   • GCP billing enabled                                 │
-│   • Cloud Run API enabled                               │
-├─────────────────────────────────────────────────────────┤
-│ NON-BLOCKING (can defer)                                │
-├─────────────────────────────────────────────────────────┤
-│ Phase 6: OpenSCADA SSH access                           │
-│ Phase 7: App Store developer accounts                   │
-└─────────────────────────────────────────────────────────┘
+BLOCKING (must complete before build):
+  Phase 1: {dependency list}
+  Phase 2: {dependency list}
+
+NON-BLOCKING (can defer):
+  Phase 6: {dependency list}
 
 Checklist saved: .planning/PREFLIGHT.md
 ```
@@ -278,7 +276,7 @@ Use AskUserQuestion:
   - "Exit" - Stop and complete setup first
 
 **If "All done":**
-- Continue to setup_branch step
+- Continue to setup_worktree step
 - Build proceeds autonomously
 
 **If "Show setup guides":**
@@ -287,7 +285,7 @@ Use AskUserQuestion:
 
 **If "Skip pre-flight":**
 - Warn: "Build will pause at checkpoints requiring manual setup"
-- Continue to setup_branch step
+- Continue to setup_worktree step
 - Plans with external dependencies should have `autonomous: false`
 
 **If "Exit":**
@@ -297,11 +295,11 @@ Use AskUserQuestion:
 
 <if dependencies_found="false">
 ```
-✅ Pre-flight Check: No blocking dependencies detected
+Pre-flight Check: No blocking dependencies detected
 
 All phases can be built autonomously.
 ```
-Continue to setup_branch step.
+Continue to setup_worktree step.
 </if>
 
 <if mode="yolo">
@@ -312,67 +310,108 @@ Continue to setup_branch step.
 </if>
 </step>
 
-<step name="setup_branch">
-**Setup development branch (default workflow):**
+<step name="setup_worktree">
+**Setup git worktree for isolated development:**
+
+All development happens in a sibling worktree directory. The main branch stays untouched
+so crons, parallel sessions, and other processes keep running.
 
 **Check current git status:**
 ```bash
-# Detect current branch
-git rev-parse --abbrev-ref HEAD
-
-# Check if we're on main/master
-git rev-parse --abbrev-ref HEAD | grep -E '^(main|master)$'
-```
-
-**If on main/master:**
-```
-🌿 Creating development branch for this build cycle
-```
-
-1. **Store original branch name:**
-   ```bash
-   ORIGINAL_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-   echo "$ORIGINAL_BRANCH" > .planning/.build-all-original-branch 2>/dev/null || true
-   ```
-
-2. **Generate branch name:**
-   ```bash
-   # Format: build-all-YYYYMMDD-HHMMSS or build-all-cycle-N
-   # Use cycle number if available from STATE.md, otherwise timestamp
-   BRANCH_NAME="build-all-$(date +%Y%m%d-%H%M%S)"
-   # Or if cycle tracking exists:
-   # BRANCH_NAME="build-all-cycle-${CYCLE_NUMBER}"
-   ```
-
-3. **Create and switch to branch:**
-   ```bash
-   git checkout -b "$BRANCH_NAME"
-   ```
-
-4. **Store branch name for later merge:**
-   - Original branch stored in `.planning/.build-all-original-branch`
-   - Current branch name stored in `.planning/.build-all-current-branch`
-   ```bash
-   echo "$BRANCH_NAME" > .planning/.build-all-current-branch 2>/dev/null || true
-   ```
-
-**If already on feature branch:**
-```
-ℹ️  Already on feature branch: $(git rev-parse --abbrev-ref HEAD)
-Continuing development on existing branch.
+REPO_ROOT=$(git rev-parse --show-toplevel)
+REPO_NAME=$(basename "$REPO_ROOT")
+WORKTREE_PATH="${REPO_ROOT}/../${REPO_NAME}-build"
+BRANCH_NAME="build-$(date +%Y%m%d-%H%M%S)"
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 ```
 
 **If not a git repository:**
 ```
-⚠️  Not a git repository. Branch workflow skipped.
-Continuing without branch isolation.
+Not a git repository. Worktree workflow skipped.
+Continuing without worktree isolation.
+```
+Set `WORKTREE_ACTIVE=false` and continue to build_loop. All work happens in current directory.
+
+**If a worktree already exists at WORKTREE_PATH:**
+```bash
+if [ -d "$WORKTREE_PATH" ]; then
+  echo "EXISTING_WORKTREE"
+  # Check if it's a valid worktree
+  git -C "$WORKTREE_PATH" rev-parse --git-dir 2>/dev/null && echo "VALID" || echo "STALE"
+fi
 ```
 
-**Branch workflow benefits:**
-- Isolates development from main branch
-- Allows testing/CI to run on main without interference
-- Clean merge at end of cycle
-- Easy rollback if cycle fails
+**If EXISTING_WORKTREE and VALID:**
+```
+Existing build worktree found at {WORKTREE_PATH}
+Resuming work in existing worktree.
+```
+Set `WORKTREE_ACTIVE=true`. Read branch name from existing worktree:
+```bash
+BRANCH_NAME=$(git -C "$WORKTREE_PATH" rev-parse --abbrev-ref HEAD)
+```
+Skip worktree creation, continue to build_loop.
+
+**If EXISTING_WORKTREE and STALE:**
+```
+Stale worktree found. Cleaning up and creating fresh worktree.
+```
+```bash
+git worktree remove "$WORKTREE_PATH" --force 2>/dev/null || rm -rf "$WORKTREE_PATH"
+git worktree prune
+```
+Continue to worktree creation below.
+
+**Create worktree:**
+```bash
+git worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" "$CURRENT_BRANCH"
+```
+
+**Setup symlinks in worktree (critical for mark-private and similar repos):**
+```bash
+cd "$WORKTREE_PATH"
+
+# Try repo's own setup script first
+if [ -f setup_workspace.sh ]; then
+    ./setup_workspace.sh 2>/dev/null || true
+fi
+
+# Ensure critical symlinks exist (proviron tools/scripts)
+PROVIRON_DIR="${REPO_ROOT}/../proviron"
+if [ -d "$PROVIRON_DIR" ]; then
+    [ -L tools ] || ln -sf "../proviron/tools" tools 2>/dev/null || true
+    [ -L scripts ] || ln -sf "../proviron/scripts" scripts 2>/dev/null || true
+    [ -L .crossnote ] || ln -sf "../proviron/.crossnote" .crossnote 2>/dev/null || true
+fi
+```
+
+**Store worktree metadata:**
+```bash
+cat > "$WORKTREE_PATH/.planning/.build-all-worktree.json" <<EOF
+{
+  "repo_root": "$REPO_ROOT",
+  "worktree_path": "$WORKTREE_PATH",
+  "branch_name": "$BRANCH_NAME",
+  "base_branch": "$CURRENT_BRANCH",
+  "created": "$(date -Iseconds)"
+}
+EOF
+```
+
+Set `WORKTREE_ACTIVE=true`.
+
+```
+Created build worktree:
+  Branch: {BRANCH_NAME}
+  Path: {WORKTREE_PATH}
+  Base: {CURRENT_BRANCH}
+
+Main branch is untouched. All work happens in worktree.
+```
+
+**IMPORTANT:** From this point forward, ALL file operations, git commands, and slash command invocations
+must operate within `WORKTREE_PATH`, not `REPO_ROOT`. When invoking slash commands, ensure the
+working directory is set to the worktree path.
 </step>
 
 <step name="build_loop">
@@ -380,15 +419,15 @@ Continuing without branch isolation.
 
 <if mode="yolo">
 ```
-🚀 Building Entire Project
+Building Entire Project
 
 This will plan and execute each phase sequentially.
 Each phase planning uses context from previous phase summaries.
 Open issues will be automatically addressed after roadmap phases complete.
 
-Branch workflow: Development happens on isolated feature branch
-Loop mode: After completion, waits 10 minutes and checks for new issues
-Merge: Development branch merges to main at end of each cycle
+Worktree: {WORKTREE_PATH} (main branch untouched)
+Loop mode: After completion, waits for review and checks for new issues
+Merge: Worktree branch merges to main at end of each cycle
 
 Starting build pipeline...
 ```
@@ -396,7 +435,7 @@ Starting build pipeline...
 
 <if mode="interactive">
 ```
-🚀 Building Entire Project
+Building Entire Project
 
 This will plan and execute each phase sequentially.
 You'll be prompted at:
@@ -406,9 +445,9 @@ You'll be prompted at:
 - Open issues resolution (after roadmap phases complete)
 - Merge confirmation (if conflicts occur)
 
-Branch workflow: Development happens on isolated feature branch
-Loop mode: After completion, waits 10 minutes and checks for new issues
-Merge: Development branch merges to main at end of each cycle
+Worktree: {WORKTREE_PATH} (main branch untouched)
+Loop mode: After completion, waits for review and checks for new issues
+Merge: Worktree branch merges to main at end of each cycle
 
 Proceed with full build?
 ```
@@ -430,32 +469,85 @@ Wait for confirmation.
 
    # Check if research exists
    ls .planning/phases/{phase-dir}/{phase}-RESEARCH.md 2>/dev/null
+
+   # Check if context exists
+   ls .planning/phases/{phase-dir}/*-CONTEXT.md 2>/dev/null
    ```
 
 2. **If phase not planned:**
 
-   **2a. Check if research needed:**
-   - Analyze phase description for complexity indicators (3D, games, audio, ML, real-time, etc.)
-   - Check roadmap for `Research: Likely` flag
-   - If complex AND no RESEARCH.md → research first
+   **2a. Smart discuss (before planning):**
 
-   **2b. Research if needed:**
+   Check if CONTEXT.md exists for this phase.
+
+   **If CONTEXT.md exists:** Skip discuss — context already gathered. Display:
    ```
-   🔬 Researching Phase {X}: {Phase Name}
+   Phase {X}: Context exists — skipping discuss.
+   ```
+
+   **If CONTEXT.md does NOT exist:**
+
+   Detect if phase is infrastructure-only:
+   - Goal keywords match: "scaffolding", "plumbing", "setup", "configuration", "migration", "refactor", "rename", "restructure", "upgrade", "infrastructure"
+   - AND success criteria are all technical: "file exists", "test passes", "config valid", "command runs"
+   - AND no user-facing behavior is described (no "users can", "displays", "shows", "presents")
+
+   **If infrastructure-only:** Skip discuss, write minimal CONTEXT.md:
+   ```
+   Phase {X}: Infrastructure phase — skipping discuss, writing minimal context.
+   ```
+   Write CONTEXT.md with:
+   - `<domain>`: Phase boundary from ROADMAP goal
+   - `<decisions>`: Single "### Claude's Discretion" subsection — "All implementation choices are at Claude's discretion — pure infrastructure phase"
+   - `<code_context>`: Brief codebase scan results
+   - `<specifics>`: "No specific requirements — infrastructure phase"
+   - `<deferred>`: "None"
+
+   **If NOT infrastructure (needs decisions):**
+
+   Present grey areas as batch table with recommendations. For each grey area (M of N):
+
+   ```
+   ### Grey Area {M}/{N}: {Area Name}
+
+   | # | Question | Recommended | Alternative(s) |
+   |---|----------|-------------|-----------------|
+   | 1 | {question} | {answer} — {rationale} | {alt1}; {alt2} |
+   | 2 | {question} | {answer} — {rationale} | {alt1} |
+   | 3 | {question} | {answer} — {rationale} | {alt1}; {alt2} |
+   ```
+
+   Use AskUserQuestion per area:
+   - "Accept all" — record all recommendations
+   - "Change QN" — let user pick alternative for specific question
+   - "Discuss deeper" — switch to interactive mode for this area
+
+   Write CONTEXT.md with all decisions captured.
+
+   **2b. Check if research needed:**
+
+   Research is needed when ANY of these are true:
+   - `RESEARCH_ALWAYS=true` (from config.json `workflow.research=true`) AND no RESEARCH.md exists for this phase
+   - Phase description contains complexity indicators (3D, games, audio, ML, real-time, Modbus, protocol, hardware, etc.)
+   - Roadmap has `Research: Likely` flag for this phase
+
+   **If research needed:**
+   ```
+   Researching Phase {X}: {Phase Name}
    /gsd:research-phase {X}
    ```
    Wait for research to complete.
 
    **2c. Plan the phase:**
    ```
-   📋 Planning Phase {X}: {Phase Name}
+   Planning Phase {X}: {Phase Name}
    /gsd:plan-phase {X}
    ```
    Wait for planning to complete.
 
 3. **If phase planned but not all executed:**
    ```
-   ⚙️  Executing Phase {X}: {Phase Name}
+   Executing Phase {X}: {Phase Name}
    ```
    Execute the phase (handles all plans with wave-based parallelization):
    ```
@@ -463,13 +555,48 @@ Wait for confirmation.
    ```
    Wait for phase execution to complete.
 
-4. **If phase complete:**
+4. **Post-execution verification routing:**
+
+   After execute-phase returns, read the verification result:
+   ```bash
+   VERIFY_STATUS=$(grep "^status:" .planning/phases/{phase-dir}/*-VERIFICATION.md 2>/dev/null | head -1 | cut -d: -f2 | tr -d ' ')
    ```
-   ✅ Phase {X} complete
+
+   **If `passed`:**
+   ```
+   Phase {X} -- Verification passed
+   ```
+   Continue to next phase.
+
+   **If `human_needed`:**
+   Read human_verification section from VERIFICATION.md. Present items to user:
+   - "Validate now" — present specific items, ask for result
+   - "Continue without validation" — defer validation, proceed
+
+   **If `gaps_found`:**
+   Read gap summary (score and missing items). Display:
+   ```
+   Phase {X}: {Phase Name} — Gaps Found
+   Score: {N}/{M} must-haves verified
+   ```
+
+   Offer gap closure (limit: 1 retry):
+   - "Run gap closure" — invoke `/gsd:plan-phase {X} --gaps`, then re-execute, re-verify
+   - "Continue without fixing" — defer gaps, proceed
+   - "Stop" — go to handle_checkpoints
+
+   If gap closure attempted and gaps persist after retry, ask user to continue or stop.
+
+   **If empty (no VERIFICATION.md):**
+   Log warning but continue — not all phases produce verification files.
+
+5. **If phase complete:**
+   ```
+   Phase {X} complete
    ```
    Skip to next phase.
 
-5. **Update progress:**
+6. **Update progress:**
    ```
    Progress: Phase {X}/{N} complete
    ```
@@ -483,7 +610,7 @@ Wait for confirmation.
 - Continue until no phases remain AND no open issues remain
 
 **If no issues OR all issues addressed:**
-- Continue to merge_branch step (merge development branch to main)
+- Continue to merge_worktree step
 - After merge, continue to loop_mode step (check for new issues)
 
 **Step 5a. Check for open issues:**
@@ -491,7 +618,6 @@ Wait for confirmation.
 # Check if ISSUES.md exists
 if [ -f .planning/ISSUES.md ]; then
   # Count open issues (ISS-XXX entries in "## Open Enhancements" section)
-  # Only count issues that are actually in the Open Enhancements section
   awk '/^## Open Enhancements/,/^## / { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md
 else
   echo "0"
@@ -526,21 +652,21 @@ Extract from "## Open Enhancements" section:
    - All issues in Open Enhancements section (including bugs, features, and other types)
 
 4. **Determine strategy:**
-   - If 2+ high-impact bugs OR 3+ total issues → Create hotfix milestone
-   - If 1+ high/medium-impact features OR 1-2 issues (any type) → Add phase to current milestone
-   - If 0 high-impact bugs AND 0 high/medium-impact features AND only low-impact enhancements → Can defer
+   - If 2+ high-impact bugs OR 3+ total issues: Create hotfix milestone
+   - If 1+ high/medium-impact features OR 1-2 issues (any type): Add phase to current milestone
+   - If 0 high-impact bugs AND 0 high/medium-impact features AND only low-impact enhancements: Can defer
 
 **If action needed (high-impact bugs exist OR high/medium-impact features exist OR user wants to address issues):**
 
 ```
-🔧 Open Issues Detected
+Open Issues Detected
 
 All roadmap phases are complete, but {N} open issue(s) remain:
 
 {List issues with ISS numbers, type, impact, and brief descriptions}
 
-{If high-impact bugs: "⚠️  {X} high-impact bug(s) detected - these should be addressed"}
-{If high/medium-impact features: "✨ {X} high/medium-impact feature(s) detected - these should be addressed"}
+{If high-impact bugs: "{X} high-impact bug(s) detected - these should be addressed"}
+{If high/medium-impact features: "{X} high/medium-impact feature(s) detected - these should be addressed"}
 ```
 
 <if mode="yolo">
@@ -548,9 +674,9 @@ All roadmap phases are complete, but {N} open issue(s) remain:
 
 **If 2+ high-impact bugs OR 3+ total issues:**
 ```
-🚀 Creating hotfix milestone to address {N} open issue(s)
+Creating hotfix milestone to address {N} open issue(s)
 ```
-1. Determine next milestone version from ROADMAP.md (e.g., if last was v1.6 → v1.7)
+1. Determine next milestone version from ROADMAP.md (e.g., if last was v1.6 -> v1.7)
 2. Analyze issues and group them logically:
    - Group related issues together (e.g., all Pint evaluator bugs, all UI features)
    - Group by component/area (e.g., unit conversion, constant handling, user interface)
@@ -561,10 +687,6 @@ All roadmap phases are complete, but {N} open issue(s) remain:
 3. Invoke: `SlashCommand("/gsd:new-milestone v{X.Y} Hotfix")` (or use "Enhancement" if mostly features)
 4. During milestone creation, provide phase breakdown:
    - For each group of related issues, create a phase
-   - Example phases:
-     - "Phase {N}: Fix Pint evaluator constants and handlers (ISS-025)"
-     - "Phase {N+1}: Implement dark mode toggle (ISS-042)"
-     - "Phase {N+2}: Fix compound unit rate calculations (ISS-026)"
    - Use issue descriptions to inform phase goals
 5. Wait for milestone creation to complete
 6. Reload roadmap to get new phases
@@ -572,18 +694,12 @@ All roadmap phases are complete, but {N} open issue(s) remain:
 
 **If 1+ high/medium-impact features OR 1-2 issues (any type):**
 ```
-🚀 Adding phase to current milestone to address {N} open issue(s)
+Adding phase to current milestone to address {N} open issue(s)
 ```
 1. Read ROADMAP.md to find last phase number
 2. Create phase description from issues:
    - Single issue: Extract brief description from issue
-     - Bug: "Fix {description}" (e.g., "Fix Pint evaluator SymPy constants" from ISS-025)
-     - Feature: "Implement {description}" (e.g., "Implement dark mode toggle" from ISS-042)
-     - Other: Use issue description directly
    - Multiple issues: Combine into logical description
-     - Same type: "Fix {component} issues (ISS-026, ISS-027)" or "Implement {features} (ISS-042, ISS-043)"
-     - Mixed: "Address {component} (ISS-026, ISS-042)" or group by type
-   - Use issue type and description to create meaningful phase name
 3. Invoke: `SlashCommand("/gsd:add-phase {description}")`
 4. Wait for phase creation to complete
 5. Reload roadmap to get new phase
@@ -598,7 +714,7 @@ All roadmap phases are complete, but {N} open issue(s) remain:
 <if mode="interactive">
 Use AskUserQuestion:
 - header: "Open Issues Found"
-- question: "{N} open issue(s) found. {If high-impact bugs: '{X} high-impact bug(s) detected.'} {If high/medium-impact features: '{X} high/medium-impact feature(s) detected.'} How would you like to proceed?"
+- question: "{N} open issue(s) found. How would you like to proceed?"
 - options:
   - "Address automatically" - Create milestone/phase and execute (same as YOLO mode)
   - "Show issues" - Display full issue details for manual review
@@ -621,131 +737,195 @@ Use AskUserQuestion:
 
 **If no open issues (count = 0) OR all issues addressed:**
 ```
-🎉 Build Cycle Complete!
+Build Cycle Complete!
 
-✅ All phases planned and executed
-📊 Total phases: {N}
-📝 All summaries created
-💾 All commits made
-✅ All open issues addressed (if applicable)
+All phases planned and executed
+Total phases: {N}
+All summaries created
+All commits made
+All open issues addressed (if applicable)
 
-Proceeding to merge and loop check...
+Proceeding to merge and lifecycle...
 ```
 </step>
 
-<step name="merge_branch">
-**Merge development branch to target branch (default workflow):**
+<step name="merge_worktree">
+**Merge worktree branch back to main (or base branch):**
 
-**Only if branch workflow was used (not on main/master):**
+**Only if WORKTREE_ACTIVE=true:**
 
 ```bash
-# Get current branch name
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+# Read worktree metadata
+cat "$WORKTREE_PATH/.planning/.build-all-worktree.json"
+```
 
-# Determine target branch (main, master, or branch we started from)
-# Check if we have a stored "original branch" from setup_branch step
-if [ -f .planning/.build-all-original-branch ]; then
-  TARGET_BRANCH=$(cat .planning/.build-all-original-branch)
-else
-  # Otherwise, try to detect default branch
-  TARGET_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || \
-    git branch -r | grep -E 'origin/(main|master)' | head -1 | sed 's@origin/@@' || \
-    echo "main")
-fi
+Extract `repo_root`, `branch_name`, `base_branch`.
 
-# Check if we're on a feature branch (starts with "build-all-")
-if echo "$CURRENT_BRANCH" | grep -q "^build-all-"; then
-  echo "MERGE_NEEDED"
+**1. Ensure all changes in worktree are committed:**
+```bash
+cd "$WORKTREE_PATH"
+if [ -n "$(git status --porcelain)" ]; then
+  echo "UNCOMMITTED_CHANGES"
 else
-  echo "NO_MERGE_NEEDED"
+  echo "CLEAN"
 fi
 ```
 
-**If MERGE_NEEDED:**
-
+If UNCOMMITTED_CHANGES:
 ```
-🔄 Merging development branch to {TARGET_BRANCH}
+Uncommitted changes detected in worktree. Committing...
+```
+```bash
+cd "$WORKTREE_PATH"
+git add -A
+git commit -m "chore: commit remaining changes before merge"
 ```
 
-1. **Switch to target branch:**
-   ```bash
-   git checkout "$TARGET_BRANCH"
-   git pull --rebase  # Ensure target is up to date
-   ```
+**2. Switch to main repo and merge:**
+```bash
+cd "$REPO_ROOT"
+git merge "$BRANCH_NAME" --no-ff -m "Merge build: $BRANCH_NAME"
+```
 
-2. **Merge feature branch:**
-   ```bash
-   git merge "$CURRENT_BRANCH" --no-ff -m "Merge build cycle: $CURRENT_BRANCH"
-   ```
-
-3. **Handle merge conflicts:**
-   - If conflicts occur, show error and pause
-   - In interactive mode: Wait for user to resolve
-   - In YOLO mode: Attempt automatic resolution if possible, otherwise pause
-
-4. **Push merged changes:**
-   ```bash
-   git push origin "$TARGET_BRANCH"
-   ```
-
-5. **Cleanup (optional):**
-   ```bash
-   # Optionally delete feature branch after successful merge
-   git branch -d "$CURRENT_BRANCH"
-   ```
+**3. Handle merge conflicts:**
+- If conflicts occur, show error and pause
+- In interactive mode: Wait for user to resolve
+- In YOLO mode: Attempt automatic resolution if possible, otherwise pause
 
 **If merge successful:**
 ```
-✅ Successfully merged to {TARGET_BRANCH}
-Code is now available on main branch.
+Successfully merged {BRANCH_NAME} to {BASE_BRANCH}
+All build work is now on the main branch.
+```
+
+**4. Push if remote exists:**
+```bash
+cd "$REPO_ROOT"
+git remote get-url origin 2>/dev/null && git push origin "$BASE_BRANCH" || true
+```
+
+**5. Cleanup worktree and branch:**
+```bash
+cd "$REPO_ROOT"
+git worktree remove "$WORKTREE_PATH"
+git branch -d "$BRANCH_NAME"
+```
+
+```
+Worktree cleaned up:
+  Removed: {WORKTREE_PATH}
+  Deleted branch: {BRANCH_NAME}
 ```
 
 **If merge failed:**
 ```
-❌ Merge conflicts detected
+Merge conflicts detected
 
 Please resolve conflicts manually:
-1. Fix conflicts in affected files
-2. Run: git add <resolved-files>
-3. Run: git commit
-4. Run: git push
+1. cd {REPO_ROOT}
+2. Fix conflicts in affected files
+3. Run: git add <resolved-files>
+4. Run: git commit
+5. Then cleanup: git worktree remove {WORKTREE_PATH} && git branch -d {BRANCH_NAME}
 
-Then retry /gsd:build-all to continue.
+Or to abort the merge:
+  git merge --abort
 ```
 Pause and wait for user to resolve.
 
-**If NO_MERGE_NEEDED:**
+**If WORKTREE_ACTIVE=false:**
 ```
-ℹ️  Already on main branch. No merge needed.
+No worktree active. Skipping merge.
+```
+</step>
+
+<step name="lifecycle">
+**Lifecycle: audit -> complete -> cleanup (from autonomous.md):**
+
+After all phases complete and merge succeeds, run the milestone lifecycle sequence.
+
+```
+LIFECYCLE
+
+All phases complete + merged -> Starting lifecycle: audit -> complete -> cleanup
+```
+
+**1. Audit:**
+
+Invoke: `SlashCommand("/gsd:audit-milestone")`
+
+After audit completes, detect the result:
+```bash
+AUDIT_FILE=$(ls .planning/v*-MILESTONE-AUDIT.md 2>/dev/null | head -1)
+AUDIT_STATUS=$(grep "^status:" "$AUDIT_FILE" 2>/dev/null | head -1 | cut -d: -f2 | tr -d ' ')
+```
+
+**If `passed`:**
+```
+Audit passed — proceeding to complete milestone
+```
+
+**If `gaps_found`:**
+Read the gaps summary. Ask user:
+- "Continue anyway — accept gaps" -> proceed
+- "Stop — fix gaps manually" -> pause
+
+**If `tech_debt`:**
+Read the tech debt summary. Ask user:
+- "Continue with tech debt" -> proceed
+- "Stop — address debt first" -> pause
+
+**If audit file missing or no status:**
+Log warning but continue — audit may not be configured for all projects.
+
+**2. Complete Milestone:**
+
+Invoke: `SlashCommand("/gsd:complete-milestone")`
+
+Verify archive produced:
+```bash
+ls .planning/milestones/v*-ROADMAP.md 2>/dev/null
+```
+
+**3. Cleanup:**
+
+Invoke: `SlashCommand("/gsd:cleanup")`
+
+Cleanup shows its own dry-run and asks user for approval internally.
+
+```
+Lifecycle complete: audit -> complete -> cleanup
 ```
 </step>
 
 <step name="review_gate">
-**Review gate: Pause for user review (Y/N/ENOUGH to proceed):**
+**Review gate: Pause for user review (Y/N/ENOUGH/CONTINUE to proceed):**
 
 At this point, the build cycle should be complete:
-- ✅ All phases planned and executed
-- ✅ Development branch merged to main (if branch workflow used)
-- ✅ Status file updated
-- ❌ Not yet marked as "done" — that is expected
+- All phases planned and executed
+- Worktree merged to main (if worktree workflow used)
+- Lifecycle completed (audit, complete, cleanup)
+- Status file updated
 
 **Action:** Show summary and ask user to review:
 
 ```
 ## Build All Complete - Review
 
-**Status:** ✅ All phases complete
+**Status:** All phases complete
 
 **Summary:**
 - Planned and executed {N} phases
 - All summaries created
 - All commits made
 - All open issues addressed (if applicable)
+- Worktree merged and cleaned up
+- Lifecycle: audit -> complete -> cleanup
 - Status file updated: .planning/.build-all-status.json
 
 **Files ready:**
 - All phase summaries in .planning/phases/
-- All code changes committed and merged
+- All code changes committed and merged to main
 
 Please review and respond:
 - **Y** = proceed to post-evaluation
@@ -773,7 +953,7 @@ Please review and respond:
 **If CONTINUE (check for new issues):**
 - Re-read ISSUES.md and count open issues
 - Compare with count at start of cycle
-- If new issues found, return to `build_loop` step (restart cycle)
+- If new issues found, return to `setup_worktree` step (new worktree for new cycle)
 - If no new issues, proceed to `post_evaluation`
 </step>
 
@@ -788,6 +968,7 @@ At the end of the run, do a quick retrospective to make the next run faster and 
 - What was unexpectedly tricky / slow
 - User feedback received (if any)
 - External process coordination (if applicable)
+- Worktree workflow: any issues with symlinks, merge, cleanup?
 
 **Then propose concrete command improvements:**
 - Which steps were unclear?
@@ -795,6 +976,7 @@ At the end of the run, do a quick retrospective to make the next run faster and 
 - Which recurring failure modes should be handled (status tracking, workspace detection, edge cases)?
 - What user feedback suggests improvements?
 - How can status tracking be improved?
+- Were there worktree-specific issues (symlink setup, path resolution)?
 
 **Apply the improvements to this command file** (`commands/gsd/build-all.md`).
 
@@ -830,6 +1012,7 @@ If **NO**, do not commit (leave changes unstaged or revert).
      "phase": "review",
      "timestamp": "$(date -Iseconds)",
      "branch": "$(git rev-parse --abbrev-ref HEAD)",
+     "worktree_active": false,
      "phases_completed": $(ls .planning/phases/*/SUMMARY.md 2>/dev/null | wc -l),
      "open_issues": $(awk '/^## Open Enhancements/,/^## / { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md 2>/dev/null || echo 0)
    }
@@ -844,14 +1027,14 @@ If **NO**, do not commit (leave changes unstaged or revert).
 
 3. **Show completion summary:**
    ```
-   🎉 Build Cycle Complete!
+   Build Cycle Complete!
 
-   ✅ All phases planned and executed
-   📊 Total phases: {N}
-   📝 All summaries created
-   💾 All commits made
-   ✅ All open issues addressed (if applicable)
-   📄 Status file updated: .planning/.build-all-status.json
+   All phases planned and executed
+   Total phases: {N}
+   All summaries created
+   All commits made
+   All open issues addressed (if applicable)
+   Status file updated: .planning/.build-all-status.json
 
    Waiting for review or external process...
    ```
@@ -888,7 +1071,7 @@ This enables closed-loop development where:
 If execution pauses at checkpoint:decision or checkpoint:human-action:
 
 ```
-⏸️  Build paused at checkpoint
+Build paused at checkpoint
 
 Phase {X}, Plan {Y}: {checkpoint details}
 
@@ -911,19 +1094,29 @@ In interactive mode:
 - [ ] Roadmap exists (or project initialized via /gsd:new-project)
 - [ ] Pre-flight check completed (dependencies identified, PREFLIGHT.md generated)
 - [ ] Blocking dependencies resolved (or user chose to skip)
-- [ ] Development branch created (if not already on feature branch)
+- [ ] Git worktree created in sibling directory (main branch untouched)
+- [ ] Symlinks set up in worktree (setup_workspace.sh or manual fallback)
 - [ ] All phases identified from roadmap
+- [ ] Smart discuss runs before planning (infrastructure detection or batch table proposals)
+- [ ] Research checked for EVERY phase (respects config.workflow.research flag)
 - [ ] Each phase planned before execution
 - [ ] Each phase executed completely before next phase planning
+- [ ] Post-execution verification routes on status (passed/gaps_found/human_needed)
+- [ ] Gap closure limited to 1 retry (prevents infinite loops)
 - [ ] Planning uses context from previous phase summaries
 - [ ] Progress shown throughout build
 - [ ] Pipeline pauses only at blocking checkpoints
 - [ ] Open issues checked after all phases complete
 - [ ] User notified if open issues exist (not in roadmap)
-- [ ] Development branch merged to main (or target branch) after cycle complete
+- [ ] Worktree branch merged to main after cycle complete
+- [ ] Worktree cleaned up after successful merge
+- [ ] Lifecycle executed: audit -> complete -> cleanup
 - [ ] Status file updated for external monitoring
 - [ ] Review gate implemented with Y/N/ENOUGH/CONTINUE options
 - [ ] CONTINUE option checks for new issues in ISSUES.md
 - [ ] Post-evaluation completed and improvements applied
 - [ ] Final summary shows completion status and open issues count
+- [ ] Worktree recovery instructions documented in objective
 </success_criteria>
+</output>
+
