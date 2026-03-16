@@ -11,6 +11,7 @@ allowed-tools:
   - Grep
   - Task
   - AskUserQuestion
+user-invocable: true
 ---
 <objective>
 Audit Nyquist validation coverage for a completed phase. Three states:

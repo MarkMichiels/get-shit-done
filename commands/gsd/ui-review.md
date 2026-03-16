@@ -10,6 +10,7 @@ allowed-tools:
   - Grep
   - Task
   - AskUserQuestion
+user-invocable: true
 ---
 <objective>
 Conduct a retroactive 6-pillar visual audit. Produces UI-REVIEW.md with

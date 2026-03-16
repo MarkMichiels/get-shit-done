@@ -12,6 +12,7 @@ allowed-tools:
   - WebFetch
   - AskUserQuestion
   - mcp__context7__*
+user-invocable: true
 ---
 <objective>
 Create a UI design contract (UI-SPEC.md) for a frontend phase.
