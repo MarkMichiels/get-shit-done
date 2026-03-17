@@ -56,7 +56,7 @@ const testCommands = {
   // Flutter/Dart
   '.dart': {
     check: () => fs.existsSync(path.join(cwd, 'pubspec.yaml')),
-    command: 'flutter test --reporter=compact',
+    command: '/home/mark/flutter/bin/flutter test --reporter=compact',
     name: 'Flutter'
   },
   // Python
