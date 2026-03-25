@@ -48,6 +48,15 @@ This respects the iterative planning principle:
 - Post-evaluation to improve the command itself
 - External process can optionally monitor status file for coordination
 
+## Parallel Projects
+
+Multiple GSD projects in the same repo can run build-all simultaneously:
+- Each gets its own worktree: `mark-private-build-gmail`, `mark-private-build-transcripts`
+- Each gets its own branch: `build-gmail-20260325-...`, `build-transcripts-20260325-...`
+- Proviron tools/scripts are shared (symlinked, not copied)
+- Merges happen independently — conflicts resolved at merge time
+- Databases are symlinked from main repo (shared read, worktree doesn't copy binary files)
+
 ## Worktree Recovery
 
 If something goes wrong mid-build:
@@ -316,14 +325,34 @@ Continue to setup_worktree step.
 All development happens in a sibling worktree directory. The main branch stays untouched
 so crons, parallel sessions, and other processes keep running.
 
-**Check current git status:**
+**Each GSD project gets its own worktree.** Multiple projects in the same repo can run in parallel
+on separate branches. Merges happen independently.
+
+**Derive project slug for worktree isolation:**
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 REPO_NAME=$(basename "$REPO_ROOT")
-WORKTREE_PATH="${REPO_ROOT}/../${REPO_NAME}-build"
-BRANCH_NAME="build-$(date +%Y%m%d-%H%M%S)"
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# Derive project slug from .planning/ location relative to repo root
+PLANNING_DIR=$(realpath .planning)
+PROJECT_REL=$(realpath --relative-to="$REPO_ROOT" "$PLANNING_DIR" | sed 's|/.planning||; s|/|-|g')
+if [ "$PROJECT_REL" = ".planning" ] || [ -z "$PROJECT_REL" ]; then
+    PROJECT_SLUG="root"
+else
+    PROJECT_SLUG="$PROJECT_REL"
+fi
+
+WORKTREE_PATH="${REPO_ROOT}/../${REPO_NAME}-build-${PROJECT_SLUG}"
+BRANCH_NAME="build-${PROJECT_SLUG}-$(date +%Y%m%d-%H%M%S)"
 ```
+
+This produces project-specific paths:
+- `mark-private-build-private-integrations-gmail` for the gmail project
+- `mark-private-build-private-integrations-transcripts` for the transcripts project
+- `mark-private-build-root` for a project at repo root
+
+Multiple GSD projects can run in parallel without worktree collisions.
 
 **If not a git repository:**
 ```
@@ -377,20 +406,41 @@ if [ -f setup_workspace.sh ]; then
 fi
 
 # Ensure critical symlinks exist (proviron tools/scripts)
+# Proviron is SHARED — all worktrees point to the same proviron repo (not copied)
 PROVIRON_DIR="${REPO_ROOT}/../proviron"
 if [ -d "$PROVIRON_DIR" ]; then
-    [ -L tools ] || ln -sf "../proviron/tools" tools 2>/dev/null || true
-    [ -L scripts ] || ln -sf "../proviron/scripts" scripts 2>/dev/null || true
-    [ -L .crossnote ] || ln -sf "../proviron/.crossnote" .crossnote 2>/dev/null || true
+    [ -L tools ] || ln -sf "$PROVIRON_DIR/tools" tools 2>/dev/null || true
+    [ -L scripts ] || ln -sf "$PROVIRON_DIR/scripts" scripts 2>/dev/null || true
+    [ -L .crossnote ] || ln -sf "$PROVIRON_DIR/.crossnote" .crossnote 2>/dev/null || true
+fi
+
+# Symlink databases and other binary/large files from main repo
+# (gitignored files don't exist in worktrees — symlink from main)
+PROJECT_DIR_IN_WORKTREE="$WORKTREE_PATH/$PROJECT_REL"
+PROJECT_DIR_IN_MAIN="$REPO_ROOT/$PROJECT_REL"
+if [ -d "$PROJECT_DIR_IN_MAIN" ]; then
+    for db in $(find "$PROJECT_DIR_IN_MAIN" -maxdepth 1 -name "*.db" -o -name "*.db-shm" -o -name "*.db-wal" -o -name "*.pkl" 2>/dev/null); do
+        dbname=$(basename "$db")
+        [ -f "$PROJECT_DIR_IN_WORKTREE/$dbname" ] || ln -sf "$db" "$PROJECT_DIR_IN_WORKTREE/$dbname" 2>/dev/null || true
+    done
+    # Symlink model directories (pickle files for ML)
+    for modeldir in $(find "$PROJECT_DIR_IN_MAIN" -maxdepth 1 -type d -name "models" 2>/dev/null); do
+        dirname=$(basename "$modeldir")
+        [ -e "$PROJECT_DIR_IN_WORKTREE/$dirname" ] || ln -sf "$modeldir" "$PROJECT_DIR_IN_WORKTREE/$dirname" 2>/dev/null || true
+    done
 fi
 ```
 
 **Store worktree metadata:**
 ```bash
-cat > "$WORKTREE_PATH/.planning/.build-all-worktree.json" <<EOF
+# Store in project-level .planning, not repo-level
+mkdir -p "$PROJECT_DIR_IN_WORKTREE/.planning"
+cat > "$PROJECT_DIR_IN_WORKTREE/.planning/.build-all-worktree.json" <<EOF
 {
   "repo_root": "$REPO_ROOT",
   "worktree_path": "$WORKTREE_PATH",
+  "project_dir": "$PROJECT_DIR_IN_WORKTREE",
+  "project_slug": "$PROJECT_SLUG",
   "branch_name": "$BRANCH_NAME",
   "base_branch": "$CURRENT_BRANCH",
   "created": "$(date -Iseconds)"
@@ -404,14 +454,20 @@ Set `WORKTREE_ACTIVE=true`.
 Created build worktree:
   Branch: {BRANCH_NAME}
   Path: {WORKTREE_PATH}
+  Project: {PROJECT_SLUG}
   Base: {CURRENT_BRANCH}
 
 Main branch is untouched. All work happens in worktree.
+Proviron tools/scripts shared (not copied).
+Databases symlinked from main repo.
 ```
 
 **IMPORTANT:** From this point forward, ALL file operations, git commands, and slash command invocations
 must operate within `WORKTREE_PATH`, not `REPO_ROOT`. When invoking slash commands, ensure the
 working directory is set to the worktree path.
+
+**PATH SAFETY:** Scripts in the worktree may have hardcoded absolute paths (e.g., `PRIVATE_ROOT = Path("/home/mark/Repositories/mark-private/private")`).
+These will resolve to the MAIN repo, not the worktree. For code that writes to `private/`, this is actually correct — knowledge documents should be written to the main knowledge base. For code that reads `.planning/` or project-specific files, use relative paths or `Path(__file__).parent`.
 </step>
 
 <step name="build_loop">
