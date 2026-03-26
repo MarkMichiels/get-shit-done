@@ -127,37 +127,61 @@ Based on the conversation and your investigation, determine:
 ```
 
 Use AskUserQuestion:
-- header: "Issue Summary"
-- question: "Does this capture the issue correctly?"
+- header: "Issue Draft"
+- question: "Review this draft. Refine or submit?"
 - options:
-  - "Yes, create it" - Proceed to create
-  - "Adjust description" - Let me refine it
-  - "Add more details" - I have more to share
-  - "Cancel" - Don't create issue
+  - "Submit" — Issue is ready. Write to ISSUES.md and proceed to signal step.
+  - "Refine" — Let me adjust or add details. (Loop back: gather feedback, update draft, present again.)
+  - "Cancel" — Don't create issue.
+
+**Refinement loop:** If "Refine" selected:
+1. Ask (inline, NOT AskUserQuestion): "What needs to change?"
+2. User provides feedback (description tweak, impact change, extra context, etc.)
+3. Update the draft based on feedback
+4. Present updated draft again with same Submit/Refine/Cancel options
+5. Repeat until user selects "Submit" or "Cancel"
+
+**The issue is NOT written to ISSUES.md until "Submit" is selected.** The draft exists only in the conversation until explicitly submitted.
 </step>
 
 <step name="create_entry">
-**Create issue entry:**
-
-If user confirmed "Yes, create it" or provided refinements:
+**Write issue to ISSUES.md (only after Submit):**
 
 1. Read current `.planning/ISSUES.md`
-2. Format the issue entry according to GSD template (using synthesized information from previous step)
+2. Format the issue entry according to GSD template (using finalized draft from previous step)
 3. Insert this entry into the "## Open Enhancements" section, after any existing issues
 4. Write updated `.planning/ISSUES.md`
-
-If user selected "Adjust description" or "Add more details":
-- Use AskUserQuestion to gather the specific refinement
-- Update the draft and present again (return to synthesize step)
-- Loop until confirmed
-
-If user selected "Cancel":
-- Exit without creating issue
 </step>
 
 <step name="complete">
 **Present completion and next steps:**
 
+**Check if build-all is watching:**
+```bash
+BUILD_STATUS=$(cat .planning/.build-all-status.json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+```
+
+**If build-all is watching (`BUILD_STATUS` = `watching`):**
+```
+✓ Issue ISS-{NEXT_ISS} created in .planning/ISSUES.md
+
+{Brief description}
+
+Impact: {Impact} | Effort: {Effort} | Suggested: {Suggested phase}
+
+Build-all is watching for new issues.
+```
+
+Use AskUserQuestion:
+- header: "Next"
+- question: "Build-all is in watch mode. Signal it to pick up this issue?"
+- options:
+  - "Signal build-all" — Run `bash "$HOME/.claude/get-shit-done/scripts/issue-signal.sh" .planning`, then show "Build-all notified — it will pick up this issue automatically."
+  - "Create another issue first" — Run /gsd:create-issue again (collect more issues before signaling)
+  - "Signal later" — Don't signal yet, back to work. User runs `issue-signal.sh` manually when ready.
+  - "Create phase instead" — Run /gsd:add-phase or /gsd:insert-phase (bypass build-all, plan directly)
+
+**If build-all is NOT watching (or no status file):**
 ```
 ✓ Issue ISS-{NEXT_ISS} created in .planning/ISSUES.md
 
