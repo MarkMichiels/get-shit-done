@@ -47,8 +47,9 @@ AskUserQuestion([
     multiSelect: false,
     options: [
       { label: "Quality", description: "Opus everywhere except verification (highest cost)" },
-      { label: "Balanced (Recommended)", description: "Opus for planning, Sonnet for execution/verification" },
-      { label: "Budget", description: "Sonnet for writing, Haiku for research/verification (lowest cost)" }
+      { label: "Balanced (Recommended)", description: "Opus for planning, Sonnet for research/execution/verification" },
+      { label: "Budget", description: "Sonnet for writing, Haiku for research/verification (lowest cost)" },
+      { label: "Inherit", description: "Use current session model for all agents (best for OpenRouter, local models, or runtime model switching)" }
     ]
   },
   {
@@ -125,6 +126,33 @@ AskUserQuestion([
       { label: "Per Phase", description: "Create branch for each phase (gsd/phase-{N}-{name})" },
       { label: "Per Milestone", description: "Create branch for entire milestone (gsd/{version}-{name})" }
     ]
+  },
+  {
+    question: "Enable context window warnings? (injects advisory messages when context is getting full)",
+    header: "Ctx Warnings",
+    multiSelect: false,
+    options: [
+      { label: "Yes (Recommended)", description: "Warn when context usage exceeds 65%. Helps avoid losing work." },
+      { label: "No", description: "Disable warnings. Allows Claude to reach auto-compact naturally. Good for long unattended runs." }
+    ]
+  },
+  {
+    question: "Research best practices before asking questions? (web search during new-project and discuss-phase)",
+    header: "Research Qs",
+    multiSelect: false,
+    options: [
+      { label: "No (Recommended)", description: "Ask questions directly. Faster, uses fewer tokens." },
+      { label: "Yes", description: "Search web for best practices before each question group. More informed questions but uses more tokens." }
+    ]
+  },
+  {
+    question: "Skip discuss-phase in autonomous mode? (use ROADMAP phase goals as spec)",
+    header: "Skip Discuss",
+    multiSelect: false,
+    options: [
+      { label: "No (Recommended)", description: "Run smart discuss before each phase — surfaces gray areas and captures decisions." },
+      { label: "Yes", description: "Skip discuss in /gsd:autonomous — chain directly to plan. Best for backend/pipeline work where phase descriptions are the spec." }
+    ]
   }
 ])
 ```
@@ -136,7 +164,7 @@ Merge new settings into existing config.json:
 ```json
 {
   ...existing_config,
-  "model_profile": "quality" | "balanced" | "budget",
+  "model_profile": "quality" | "balanced" | "budget" | "inherit",
   "workflow": {
     "research": true/false,
     "plan_check": true/false,
@@ -144,10 +172,19 @@ Merge new settings into existing config.json:
     "auto_advance": true/false,
     "nyquist_validation": true/false,
     "ui_phase": true/false,
-    "ui_safety_gate": true/false
+    "ui_safety_gate": true/false,
+    "text_mode": true/false,
+    "research_before_questions": true/false,
+    "discuss_mode": "discuss" | "assumptions",
+    "skip_discuss": true/false
   },
   "git": {
-    "branching_strategy": "none" | "phase" | "milestone"
+    "branching_strategy": "none" | "phase" | "milestone",
+    "quick_branch_template": <string|null>
+  },
+  "hooks": {
+    "context_warnings": true/false,
+    "workflow_guard": true/false
   }
 }
 ```
@@ -187,6 +224,7 @@ Write `~/.gsd/defaults.json` with:
   "commit_docs": <current>,
   "parallelization": <current>,
   "branching_strategy": <current>,
+  "quick_branch_template": <current>,
   "workflow": {
     "research": <current>,
     "plan_check": <current>,
@@ -194,7 +232,8 @@ Write `~/.gsd/defaults.json` with:
     "auto_advance": <current>,
     "nyquist_validation": <current>,
     "ui_phase": <current>,
-    "ui_safety_gate": <current>
+    "ui_safety_gate": <current>,
+    "skip_discuss": <current>
   }
 }
 ```
@@ -210,7 +249,7 @@ Display:
 
 | Setting              | Value |
 |----------------------|-------|
-| Model Profile        | {quality/balanced/budget} |
+| Model Profile        | {quality/balanced/budget/inherit} |
 | Plan Researcher      | {On/Off} |
 | Plan Checker         | {On/Off} |
 | Execution Verifier   | {On/Off} |
@@ -219,6 +258,8 @@ Display:
 | UI Phase             | {On/Off} |
 | UI Safety Gate       | {On/Off} |
 | Git Branching        | {None/Per Phase/Per Milestone} |
+| Skip Discuss         | {On/Off} |
+| Context Warnings     | {On/Off} |
 | Saved as Defaults    | {Yes/No} |
 
 These settings apply to future /gsd:plan-phase and /gsd:execute-phase runs.
@@ -235,7 +276,7 @@ Quick commands:
 
 <success_criteria>
 - [ ] Current config read
-- [ ] User presented with 9 settings (profile + 7 workflow toggles + git branching)
+- [ ] User presented with 10 settings (profile + 8 workflow toggles + git branching)
 - [ ] Config updated with model_profile, workflow, and git sections
 - [ ] User offered to save as global defaults (~/.gsd/defaults.json)
 - [ ] Changes confirmed to user
