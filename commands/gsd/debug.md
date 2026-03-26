@@ -111,6 +111,7 @@ Task(
 - Display root cause and evidence summary
 - Offer options:
   - "Fix now" - spawn fix subagent
+  - "File as issue" - write to ISSUES.md (see step 6)
   - "Plan fix" - suggest /gsd:plan-phase --gaps
   - "Manual fix" - done
 
@@ -126,6 +127,7 @@ Task(
 - Show what was checked and eliminated
 - Offer options:
   - "Continue investigating" - spawn new agent with additional context
+  - "File what we know" - write partial findings as issue to ISSUES.md (see step 6)
   - "Manual investigation" - done
   - "Add more context" - gather more symptoms, spawn again
 
@@ -163,6 +165,63 @@ Task(
 )
 ```
 
+## 6. File Issue and Signal Build-All
+
+When the user chooses "File as issue" or "File what we know", create an issue in ISSUES.md
+and optionally signal a watching build-all session.
+
+**Write issue to ISSUES.md:**
+
+```bash
+# Find next ISS number
+LAST_ISS=$(grep -oE 'ISS-[0-9]+' .planning/ISSUES.md 2>/dev/null | sort -t- -k2 -n | tail -1 | grep -oE '[0-9]+')
+NEXT_ISS=$((${LAST_ISS:-0} + 1))
+```
+
+Append to the `## Open Enhancements` section of `.planning/ISSUES.md`:
+
+```markdown
+### ISS-{NEXT_ISS}: {Brief description from root cause}
+- **Type:** Bug
+- **Impact:** {High|Medium|Low — based on debug findings}
+- **Root Cause:** {From debug session findings}
+- **Debug Session:** .planning/debug/{slug}.md
+- **Suggested Fix:** {From debug agent's recommendation}
+```
+
+Commit the issue:
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.cjs" commit "docs: file ISS-${NEXT_ISS} from debug session ${slug}" --files .planning/ISSUES.md
+```
+
+**Signal build-all (if watching):**
+
+Check if build-all is in watch mode:
+```bash
+STATUS=$(cat .planning/.build-all-status.json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null)
+```
+
+**If `STATUS` is `watching`:**
+```bash
+GSD_DIR="$HOME/.claude/get-shit-done"
+bash "$GSD_DIR/scripts/issue-signal.sh" .planning
+```
+```
+Issue filed: ISS-{NEXT_ISS}
+Build-all notified — it will pick up this issue automatically.
+```
+
+**If `STATUS` is NOT `watching` (or no status file):**
+```
+Issue filed: ISS-{NEXT_ISS}
+No build-all session watching. Run /gsd:build-all to process this issue.
+```
+
+**Multiple issues:** If the user wants to file more issues before signaling, offer:
+- "File another" — repeat step 6 without signaling yet
+- "Signal now" — run issue-signal.sh to notify build-all
+- "Done" — issues filed but no signal (user will signal manually or run build-all later)
+
 </process>
 
 <success_criteria>
@@ -171,4 +230,6 @@ Task(
 - [ ] gsd-debugger spawned with context
 - [ ] Checkpoints handled correctly
 - [ ] Root cause confirmed before fixing
+- [ ] Issues filed to ISSUES.md when requested (step 6)
+- [ ] Build-all signaled when in watch mode
 </success_criteria>

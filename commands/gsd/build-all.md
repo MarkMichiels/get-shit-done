@@ -1140,6 +1140,7 @@ Please review and respond:
 - **N** = collect corrections, apply fixes, then repeat review
 - **ENOUGH** = stop building, mark status as "done", workflow complete
 - **CONTINUE** = check for new issues in ISSUES.md, restart cycle if found
+- **WATCH** = enter watch mode — wait for external process to signal new issues
 ```
 
 **After user response:**
@@ -1163,6 +1164,93 @@ Please review and respond:
 - Compare with count at start of cycle
 - If new issues found, return to `setup_worktree` step (new worktree for new cycle)
 - If no new issues, proceed to `post_evaluation`
+
+**If WATCH (enter watch mode):**
+- Proceed to `issue_watch` step
+</step>
+
+<step name="issue_watch">
+**Issue Watch Mode: Block until external process signals new issues**
+
+Watch mode allows build-all to stay alive while an external process (debug session,
+test runner, user in another terminal) collects and files issues. Build-all blocks
+on a bash command and resumes when signaled.
+
+**Protocol:**
+- Issues are written to `.planning/ISSUES.md` (data — can take multiple steps)
+- External process signals readiness via `scripts/issue-signal.sh` (atomic JSON write)
+- Build-all watches via `scripts/issue-wait.sh` (blocks until signal or timeout)
+- After pickup, build-all clears the signal and processes issues
+
+**1. Update status and enter watch:**
+```bash
+# Update status file
+cat > .planning/.build-all-status.json <<EOF
+{
+  "status": "watching",
+  "phase": "issue-watch",
+  "timestamp": "$(date -Iseconds)",
+  "watching_for": ".build-all-inbox.json",
+  "signal_command": "bash $GSD_DIR/scripts/issue-signal.sh .planning"
+}
+EOF
+```
+
+```
+## Entering Watch Mode
+
+Build-all is waiting for new issues.
+Status: .planning/.build-all-status.json → "watching"
+
+To signal new issues from another session:
+
+  1. Write issues to .planning/ISSUES.md
+  2. Run: bash {GSD_DIR}/scripts/issue-signal.sh .planning
+
+Or from a GSD debug session:
+
+  /gsd:debug → find issues → signal when done
+
+Timeout: 10 minutes (then asks to continue or stop)
+```
+
+**2. Block on watch script:**
+```bash
+GSD_DIR="$HOME/.claude/get-shit-done"
+RESULT=$(bash "$GSD_DIR/scripts/issue-wait.sh" .planning 600)
+echo "$RESULT"
+```
+
+**3. Handle result:**
+
+**If `ISSUES_READY|N|source`:**
+```
+Issues signaled: {N} new issues from {source}
+```
+- Clear the inbox: `bash "$GSD_DIR/scripts/issue-signal.sh" --reset .planning`
+- Read ISSUES.md to analyze new issues
+- Follow existing issue resolution logic (create phase/milestone, plan, execute)
+- After resolving, return to `review_gate` (user can WATCH again for more)
+
+**If `TIMEOUT`:**
+```
+Watch timeout — no new issues signaled in 10 minutes.
+
+Options:
+- WATCH = keep watching (another 10 minutes)
+- ENOUGH = stop, mark as done
+```
+
+Use AskUserQuestion with "WATCH" and "ENOUGH" options.
+
+**If WATCH again:** Re-enter this step (restart the wait script)
+**If ENOUGH:** Update status to "done", proceed to `post_evaluation`
+
+<if mode="yolo">
+On TIMEOUT in yolo mode:
+- Auto-select ENOUGH (don't watch indefinitely without user)
+- Proceed to post_evaluation
+</if>
 </step>
 
 <step name="post_evaluation">
@@ -1322,8 +1410,9 @@ In interactive mode:
 - [ ] Worktree cleaned up after successful merge
 - [ ] Lifecycle executed: audit -> complete -> cleanup
 - [ ] Status file updated for external monitoring
-- [ ] Review gate implemented with Y/N/ENOUGH/CONTINUE options
+- [ ] Review gate implemented with Y/N/ENOUGH/CONTINUE/WATCH options
 - [ ] CONTINUE option checks for new issues in ISSUES.md
+- [ ] WATCH mode blocks on issue-wait.sh, resumes when issue-signal.sh fires
 - [ ] Post-evaluation completed and improvements applied
 - [ ] Final summary shows completion status and open issues count
 - [ ] Worktree recovery instructions documented in objective
