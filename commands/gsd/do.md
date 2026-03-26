@@ -6,6 +6,7 @@ allowed-tools:
   - Read
   - Bash
   - AskUserQuestion
+user-invocable: true
 ---
 <objective>
 Analyze freeform natural language input and dispatch to the most appropriate GSD command.

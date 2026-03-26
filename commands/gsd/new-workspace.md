@@ -7,6 +7,7 @@ allowed-tools:
   - Bash
   - Write
   - AskUserQuestion
+user-invocable: true
 ---
 <context>
 **Flags:**

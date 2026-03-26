@@ -6,6 +6,7 @@ allowed-tools:
   - Bash
   - Read
   - AskUserQuestion
+user-invocable: true
 ---
 
 <objective>

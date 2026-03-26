@@ -9,6 +9,7 @@ allowed-tools:
   - Glob
   - Write
   - AskUserQuestion
+user-invocable: true
 ---
 <objective>
 Bridge local completion → merged PR. After /gsd:verify-work passes, ship the work: push branch, create PR with auto-generated body, optionally trigger review, and track the merge.

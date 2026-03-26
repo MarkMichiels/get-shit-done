@@ -10,6 +10,7 @@ allowed-tools:
   - Grep
   - AskUserQuestion
   - Task
+user-invocable: true
 ---
 
 <objective>

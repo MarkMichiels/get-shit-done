@@ -8,6 +8,7 @@ allowed-tools:
   - Edit
   - Bash
   - AskUserQuestion
+user-invocable: true
 ---
 
 <objective>

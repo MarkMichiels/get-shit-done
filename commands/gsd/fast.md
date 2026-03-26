@@ -9,6 +9,7 @@ allowed-tools:
   - Bash
   - Grep
   - Glob
+user-invocable: true
 ---
 
 <objective>

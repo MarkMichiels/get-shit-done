@@ -7,6 +7,7 @@ allowed-tools:
   - Write
   - Glob
   - Grep
+user-invocable: true
 ---
 <objective>
 Zero-friction idea capture — one Write call, one confirmation line.

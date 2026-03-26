@@ -4,6 +4,7 @@ description: List active GSD workspaces and their status
 allowed-tools:
   - Bash
   - Read
+user-invocable: true
 ---
 <objective>
 Scan `~/gsd-workspaces/` for workspace directories containing `WORKSPACE.md` manifests. Display a summary table with name, path, repo count, strategy, and GSD project status.
