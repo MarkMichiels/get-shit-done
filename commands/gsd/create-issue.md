@@ -126,31 +126,42 @@ Based on the conversation and your investigation, determine:
   - `path/to/file.py` - {What needs to change}
 ```
 
-Use AskUserQuestion:
-- header: "Issue Draft"
-- question: "Review this draft. Refine or submit?"
-- options:
-  - "Submit" — Issue is ready. Write to ISSUES.md and proceed to signal step.
-  - "Refine" — Let me adjust or add details. (Loop back: gather feedback, update draft, present again.)
-  - "Cancel" — Don't create issue.
-
-**Refinement loop:** If "Refine" selected:
-1. Ask (inline, NOT AskUserQuestion): "What needs to change?"
-2. User provides feedback (description tweak, impact change, extra context, etc.)
-3. Update the draft based on feedback
-4. Present updated draft again with same Submit/Refine/Cancel options
-5. Repeat until user selects "Submit" or "Cancel"
-
-**The issue is NOT written to ISSUES.md until "Submit" is selected.** The draft exists only in the conversation until explicitly submitted.
-</step>
-
-<step name="create_entry">
-**Write issue to ISSUES.md (only after Submit):**
+**Write immediately to ISSUES.md** so the user can review it in the actual file:
 
 1. Read current `.planning/ISSUES.md`
-2. Format the issue entry according to GSD template (using finalized draft from previous step)
+2. Format the issue entry according to GSD template
 3. Insert this entry into the "## Open Enhancements" section, after any existing issues
 4. Write updated `.planning/ISSUES.md`
+
+```
+Issue ISS-{NEXT_ISS} written to .planning/ISSUES.md — review it there.
+```
+
+**Refinement loop:**
+
+Use AskUserQuestion:
+- header: "Issue ISS-{NEXT_ISS}"
+- question: "Review the issue in ISSUES.md. Refine or submit?"
+- options:
+  - "Submit" — Issue is final. Signal build-all if watching.
+  - "Refine" — I want to adjust something.
+  - "Cancel" — Remove this issue from ISSUES.md.
+
+**If "Refine":**
+1. Ask (inline, NOT AskUserQuestion): "What needs to change?"
+2. User provides feedback
+3. Update the issue entry in `.planning/ISSUES.md` (Edit tool)
+4. Show: "Updated ISS-{NEXT_ISS} in ISSUES.md"
+5. Present same Submit/Refine/Cancel options again
+6. Repeat until "Submit" or "Cancel"
+
+**If "Cancel":**
+- Remove the issue entry from `.planning/ISSUES.md`
+- Show: "ISS-{NEXT_ISS} removed."
+- Exit
+
+**If "Submit":**
+- Proceed to `complete` step (signal build-all if watching)
 </step>
 
 <step name="complete">
