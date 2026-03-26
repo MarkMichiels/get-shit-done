@@ -195,6 +195,146 @@ Parse mode (yolo/interactive) and gates.
 **Store research config:** Check if `workflow.research` is `true` in config.json. If true, set `RESEARCH_ALWAYS=true`. This flag is used in the build_loop to ensure research is always checked.
 </step>
 
+<step name="critical_evaluation">
+**Critical evaluation: Is this roadmap ready to build?**
+
+This is the most important step in build-all. Before committing hours of autonomous execution, walk through every phase and verify the roadmap is buildable. The goal: catch problems NOW, not 3 phases in.
+
+**Mindset: Helpful skeptic, not interrogator.** Don't ask the user a list of questions. Instead, analyze everything yourself, form an opinion, and present your assessment. The user should feel like they have a knowledgeable partner reviewing the plan — not filling out a questionnaire.
+
+**1. Load all planning context:**
+```bash
+cat .planning/ROADMAP.md
+cat .planning/PROJECT.md 2>/dev/null
+cat .planning/REQUIREMENTS.md 2>/dev/null
+cat .planning/STATE.md 2>/dev/null
+ls .planning/codebase/*.md 2>/dev/null  # Existing codebase analysis
+```
+
+Also scan the actual codebase to understand current state:
+```bash
+# What exists already?
+find . -maxdepth 3 -name "*.ts" -o -name "*.py" -o -name "*.js" -o -name "*.rs" | head -30
+cat package.json 2>/dev/null | head -20
+cat pyproject.toml 2>/dev/null | head -20
+```
+
+**2. Walk through every phase — build a mental model:**
+
+For each phase, evaluate:
+
+| Check | Question | Red Flag |
+|-------|----------|----------|
+| **Clarity** | Is the goal specific enough to plan against? | "Improve UX", "optimize performance" without targets |
+| **Completeness** | Are success criteria testable and concrete? | No success criteria, or only vague ones |
+| **Information gaps** | Do we have everything needed to build this? | Missing API specs, design mockups, data schemas |
+| **Dependencies** | Does this need something from a previous phase that isn't explicitly produced? | Phase 3 needs a DB schema that Phase 2 doesn't mention |
+| **Scope** | Is this phase trying to do too much? | >5 success criteria, mixing concerns (UI + backend + infra) |
+| **Feasibility** | Can Claude Code actually build this autonomously? | Hardware setup, manual GUI testing, real-time debugging |
+| **Handoff gaps** | Will the output of this phase give the next phase what it needs? | Phase produces API but next phase assumes WebSocket |
+
+**3. Establish definition of done per phase:**
+
+For each phase, state in 1-2 sentences what "done" concretely means. This becomes the contract between the generator (executor) and evaluator (verifier). The executor can't move the goalpost mid-build.
+
+**4. Report back to the user:**
+
+Present a single assessment table — NOT a wall of questions:
+
+```
+## Build Readiness Assessment
+
+| # | Phase | Goal | Definition of Done | Status |
+|---|-------|------|--------------------|--------|
+| 1 | {Name} | {1-line goal} | {concrete done criteria} | ✅ Ready |
+| 2 | {Name} | {1-line goal} | {concrete done criteria} | ✅ Ready |
+| 3 | {Name} | {1-line goal} | {concrete done criteria} | ⚠️ Gap |
+| 4 | {Name} | {1-line goal} | {concrete done criteria} | ✅ Ready |
+
+### Issues to Resolve
+
+**Phase 3: {Name}**
+⚠ {Specific issue — e.g., "Success criteria say 'API handles all edge cases' but no edge cases are defined"}
+💡 {Concrete suggestion — e.g., "I'll add these edge cases to the success criteria: empty input, duplicate entries, concurrent writes"}
+
+{For each issue: state what YOU will fix vs. what needs USER input}
+```
+
+**5. Resolve issues:**
+
+**Issues you can fix yourself** (missing detail, vague criteria, ordering problems):
+- Propose the fix inline: "I'll update Phase 3's success criteria to include: ..."
+- Apply fixes to ROADMAP.md directly after user approves
+
+**Issues that need user input** (ambiguous requirements, business decisions, external dependencies):
+- Ask specifically: "Phase 4 says 'integrate with payment provider' — which one? Stripe, Mollie, or something else?"
+- Batch all user questions together — don't ask one at a time
+
+**6. Recommend branch strategy:**
+
+Based on the roadmap analysis, recommend whether to use an isolated branch or work on main. Don't ask blind — make a recommendation with reasoning.
+
+**Factors that favor isolated branch (worktree):**
+- Production repo with running crons, daemons, or services on main
+- Parallel build-all sessions in the same repo
+- Large/risky changes that could break main mid-build
+- Shared repo with other contributors
+
+**Factors that favor main branch (no worktree):**
+- Solo work, no services running on main
+- Small project (1-3 phases)
+- New project (nothing to break yet)
+- Project is in a subdirectory that doesn't affect main-branch processes
+
+Present as part of the assessment summary:
+
+```
+### Branch Strategy
+
+**Recommendation: Main branch** (no worktree isolation)
+Reason: {e.g., "New project with 3 phases, no services running on main. Worktree adds unnecessary complexity."}
+```
+or:
+```
+### Branch Strategy
+
+**Recommendation: Isolated branch** (worktree)
+Reason: {e.g., "This repo has cron jobs running on main. 6 phases with significant file changes — safer to isolate."}
+```
+
+The user can override, but present a clear recommendation. Set `WORKTREE_MODE` based on user's choice (or the recommendation if user accepts).
+
+**7. Final summary and proceed:**
+
+**If everything looks solid (no issues, or all issues resolved):**
+```
+## Build Readiness: ✅ All Clear
+
+{N} phases reviewed. All goals are specific, success criteria are testable, and phases connect logically.
+Branch: {main | isolated worktree} — {1-line reason}
+
+{Any minor notes}
+
+Starting build.
+```
+Proceed directly — don't ask "shall I proceed?" when there are no issues.
+
+**If issues remain that need user input:**
+Batch all remaining questions and wait for answers. Then proceed.
+
+<if mode="yolo">
+Still run the full evaluation. If issues found:
+- Fix what you can fix yourself (update ROADMAP.md)
+- Log warnings for issues needing user input
+- Default to main branch (no worktree)
+- Continue building
+```
+Build readiness: {N} phases reviewed, {M} issues auto-fixed, {K} warnings logged.
+Branch: main (default). Proceeding.
+```
+</if>
+</step>
+
 <step name="preflight_check">
 **Pre-flight: Identify all external dependencies before building**
 
@@ -321,6 +461,14 @@ Continue to setup_worktree step.
 
 <step name="setup_worktree">
 **Setup git worktree for isolated development:**
+
+**If `WORKTREE_MODE=false`:** Skip this entire step. Set `WORKTREE_ACTIVE=false`. All work happens on the current branch.
+```
+Working directly on main branch. No worktree isolation.
+```
+Continue to build_loop.
+
+**If `WORKTREE_MODE=true`:**
 
 All development happens in a sibling worktree directory. The main branch stays untouched
 so crons, parallel sessions, and other processes keep running.
@@ -616,11 +764,12 @@ Wait for confirmation.
    After execute-phase returns, read the verification result:
    ```bash
    VERIFY_STATUS=$(grep "^status:" .planning/phases/{phase-dir}/*-VERIFICATION.md 2>/dev/null | head -1 | cut -d: -f2 | tr -d ' ')
+   QUALITY_SCORE=$(grep "^  overall:" .planning/phases/{phase-dir}/*-VERIFICATION.md 2>/dev/null | head -1 | grep -oE "[0-9]+")
    ```
 
    **If `passed`:**
    ```
-   Phase {X} -- Verification passed
+   Phase {X} -- Verification passed (quality: {QUALITY_SCORE}/10)
    ```
    Continue to next phase.
 
@@ -630,11 +779,14 @@ Wait for confirmation.
    - "Continue without validation" — defer validation, proceed
 
    **If `gaps_found`:**
-   Read gap summary (score and missing items). Display:
+   Read gap summary (score, quality scores, and missing items). Display:
    ```
    Phase {X}: {Phase Name} — Gaps Found
    Score: {N}/{M} must-haves verified
+   Quality: {overall}/10 (completeness: {N}, correctness: {N}, integration: {N}, edge_cases: {N}, code_quality: {N})
    ```
+
+   Show quality dimension details for any dimension scoring < 7.
 
    Offer gap closure (limit: 1 retry):
    - "Run gap closure" — invoke `/gsd:plan-phase {X} --gaps`, then re-execute, re-verify
@@ -1148,10 +1300,12 @@ In interactive mode:
 <success_criteria>
 - [ ] Planning structure verified
 - [ ] Roadmap exists (or project initialized via /gsd:new-project)
+- [ ] Critical roadmap evaluation completed — every phase reviewed with definition of done
+- [ ] Branch strategy recommended based on roadmap analysis (not asked blind)
 - [ ] Pre-flight check completed (dependencies identified, PREFLIGHT.md generated)
 - [ ] Blocking dependencies resolved (or user chose to skip)
-- [ ] Git worktree created in sibling directory (main branch untouched)
-- [ ] Symlinks set up in worktree (setup_workspace.sh or manual fallback)
+- [ ] If worktree mode: Git worktree created in sibling directory (main branch untouched)
+- [ ] If worktree mode: Symlinks set up in worktree (setup_workspace.sh or manual fallback)
 - [ ] All phases identified from roadmap
 - [ ] Smart discuss runs before planning (infrastructure detection or batch table proposals)
 - [ ] Research checked for EVERY phase (respects config.workflow.research flag)

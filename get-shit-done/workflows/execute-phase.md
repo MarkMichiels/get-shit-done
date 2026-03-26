@@ -306,34 +306,45 @@ Verify phase achieved its GOAL, not just completed tasks.
 
 ```
 Task(
-  prompt="Verify phase {phase_number} goal achievement.
+  prompt="ADVERSARIAL VERIFICATION of phase {phase_number}.
+
+You are the skeptic. Your default assumption: this phase FAILED. Find evidence to change your mind.
+
 Phase directory: {phase_dir}
 Phase goal: {goal from ROADMAP.md}
 Phase requirement IDs: {phase_req_ids}
-Check must_haves against actual codebase.
-Cross-reference requirement IDs from PLAN frontmatter against REQUIREMENTS.md — every ID MUST be accounted for.
-Create VERIFICATION.md.",
+
+REQUIRED:
+1. Check must_haves against actual codebase (goal-backward analysis)
+2. Cross-reference requirement IDs from PLAN frontmatter against REQUIREMENTS.md — every ID MUST be accounted for
+3. RUN tests, build, type-check — don't just read code
+4. Try to BREAK the implementation — feed edge cases, unexpected input
+5. Score ALL 5 quality dimensions (completeness, correctness, integration, edge_cases, code_quality) on 1-10 scale
+6. Quality threshold: overall (min of 5 scores) must be >= 7 to pass
+
+Create VERIFICATION.md with quality scores, active verification results, and adversarial findings.",
   subagent_type="gsd-verifier",
   model="{verifier_model}"
 )
 ```
 
-Read status:
+Read status and quality:
 ```bash
 grep "^status:" "$PHASE_DIR"/*-VERIFICATION.md | cut -d: -f2 | tr -d ' '
+grep "overall:" "$PHASE_DIR"/*-VERIFICATION.md | head -1 | grep -oE "[0-9]+"
 ```
 
 | Status | Action |
 |--------|--------|
 | `passed` | → update_roadmap |
 | `human_needed` | Present items for human testing, get approval or feedback |
-| `gaps_found` | Present gap summary, offer `/gsd:plan-phase {phase} --gaps` |
+| `gaps_found` | Present gap summary (including quality gaps), offer `/gsd:plan-phase {phase} --gaps` |
 
 **If human_needed:**
 ```
 ## ✓ Phase {X}: {Name} — Human Verification Required
 
-All automated checks passed. {N} items need human testing:
+All automated checks passed. Quality: {N}/10. {M} items need human testing:
 
 {From VERIFICATION.md human_verification section}
 
@@ -345,10 +356,14 @@ All automated checks passed. {N} items need human testing:
 ## ⚠ Phase {X}: {Name} — Gaps Found
 
 **Score:** {N}/{M} must-haves verified
+**Quality:** {overall}/10 (completeness: {N}, correctness: {N}, integration: {N}, edge_cases: {N}, code_quality: {N})
 **Report:** {phase_dir}/{phase_num}-VERIFICATION.md
 
 ### What's Missing
-{Gap summaries from VERIFICATION.md}
+{Gap summaries from VERIFICATION.md — including quality dimension gaps}
+
+### Active Verification Results
+{Test results, build status, edge case probes from VERIFICATION.md}
 
 ---
 ## ▶ Next Up
