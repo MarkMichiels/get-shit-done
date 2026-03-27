@@ -174,6 +174,26 @@ Projects:
   2. ./private/integrations/gmail/
   ...
 ```
+
+**After selecting the project, load sibling project context:**
+
+Other GSD projects in the same repo are potential cross-project collaborators. Read their
+PROJECT.md first line (project name) and count their open issues. This gives you awareness
+of the ecosystem without loading full context.
+
+```bash
+# For each OTHER project found (not the selected one):
+for PROJECT in $ALL_PROJECTS; do
+    [ "$PROJECT" = "$SELECTED" ] && continue
+    NAME=$(head -1 "$PROJECT/.planning/PROJECT.md" 2>/dev/null | sed 's/^# //')
+    ISSUES=0
+    [ -f "$PROJECT/.planning/ISSUES.md" ] && \
+        ISSUES=$(awk '/^## Open (Bugs|Enhancements)/,/^## / { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' "$PROJECT/.planning/ISSUES.md")
+    echo "  Sibling: $NAME ($PROJECT) — $ISSUES open issues"
+done
+```
+
+Remember these sibling paths — when creating cross-project issues, you know where to write them.
 </step>
 
 <step name="verify">
