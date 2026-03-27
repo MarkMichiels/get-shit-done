@@ -1,6 +1,6 @@
 ---
 name: gsd:build-all
-description: Build entire project automatically (plan → execute each phase sequentially) using git worktree isolation
+description: Build entire project automatically (plan → execute each phase sequentially) with daemon mode for continuous issue resolution
 allowed-tools:
   - Read
   - Bash
@@ -32,14 +32,7 @@ This respects the iterative planning principle:
 - Code builds incrementally
 - Context accumulates naturally through SUMMARY.md files
 
-**Worktree isolation (default):**
-- All development happens in a **git worktree** in a sibling directory
-- Main branch is NEVER touched during development
-- Crons, other processes, and parallel sessions on main keep running undisturbed
-- Worktree gets its own branch, own working directory, own symlinks
-- At end of cycle, worktree branch is merged back to main
-- Worktree is cleaned up after successful merge
-- If something goes wrong, recovery is straightforward (see Worktree Recovery below)
+**All work happens on the current branch.** No worktree isolation — simpler, fewer failure modes.
 
 **Interactive mode (default):**
 - Workflow continues until user explicitly says "it's done" or "enough"
@@ -59,42 +52,7 @@ This respects the iterative planning principle:
 
 ## Parallel Projects
 
-Multiple GSD projects in the same repo can run build-all simultaneously:
-- Each gets its own worktree: `mark-private-build-gmail`, `mark-private-build-transcripts`
-- Each gets its own branch: `build-gmail-20260325-...`, `build-transcripts-20260325-...`
-- Proviron tools/scripts are shared (symlinked, not copied)
-- Merges happen independently — conflicts resolved at merge time
-- Databases are symlinked from main repo (shared read, worktree doesn't copy binary files)
-
-## Worktree Recovery
-
-If something goes wrong mid-build:
-
-1. Check worktree status:
-   ```bash
-   git worktree list
-   ```
-
-2. Remove broken worktree:
-   ```bash
-   git worktree remove /path/to/worktree --force
-   ```
-
-3. Delete orphaned branch:
-   ```bash
-   git branch -D branch-name
-   ```
-
-4. Start fresh:
-   ```
-   /gsd:build-all
-   ```
-
-5. If worktree directory remains after removal:
-   ```bash
-   rm -rf /path/to/worktree
-   git worktree prune
-   ```
+Multiple GSD projects in the same repo can run build-all simultaneously — each in its own session, working on different `.planning/` directories. Commits go to the same branch (main). Conflicts are rare because projects modify different files.
 </objective>
 
 <execution_context>
@@ -344,48 +302,13 @@ Present a single assessment table — NOT a wall of questions:
 - Ask specifically: "Phase 4 says 'integrate with payment provider' — which one? Stripe, Mollie, or something else?"
 - Batch all user questions together — don't ask one at a time
 
-**6. Recommend branch strategy:**
-
-Based on the roadmap analysis, recommend whether to use an isolated branch or work on main. Don't ask blind — make a recommendation with reasoning.
-
-**Factors that favor isolated branch (worktree):**
-- Production repo with running crons, daemons, or services on main
-- Parallel build-all sessions in the same repo
-- Large/risky changes that could break main mid-build
-- Shared repo with other contributors
-
-**Factors that favor main branch (no worktree):**
-- Solo work, no services running on main
-- Small project (1-3 phases)
-- New project (nothing to break yet)
-- Project is in a subdirectory that doesn't affect main-branch processes
-
-Present as part of the assessment summary:
-
-```
-### Branch Strategy
-
-**Recommendation: Main branch** (no worktree isolation)
-Reason: {e.g., "New project with 3 phases, no services running on main. Worktree adds unnecessary complexity."}
-```
-or:
-```
-### Branch Strategy
-
-**Recommendation: Isolated branch** (worktree)
-Reason: {e.g., "This repo has cron jobs running on main. 6 phases with significant file changes — safer to isolate."}
-```
-
-The user can override, but present a clear recommendation. Set `WORKTREE_MODE` based on user's choice (or the recommendation if user accepts).
-
-**7. Final summary and proceed:**
+**6. Final summary and proceed:**
 
 **If everything looks solid (no issues, or all issues resolved):**
 ```
 ## Build Readiness: ✅ All Clear
 
 {N} phases reviewed. All goals are specific, success criteria are testable, and phases connect logically.
-Branch: {main | isolated worktree} — {1-line reason}
 
 {Any minor notes}
 
@@ -499,7 +422,7 @@ Use AskUserQuestion:
   - "Exit" - Stop and complete setup first
 
 **If "All done":**
-- Continue to setup_worktree step
+- Continue to build_loop step
 - Build proceeds autonomously
 
 **If "Show setup guides":**
@@ -508,7 +431,7 @@ Use AskUserQuestion:
 
 **If "Skip pre-flight":**
 - Warn: "Build will pause at checkpoints requiring manual setup"
-- Continue to setup_worktree step
+- Continue to build_loop step
 - Plans with external dependencies should have `autonomous: false`
 
 **If "Exit":**
@@ -522,7 +445,7 @@ Pre-flight Check: No blocking dependencies detected
 
 All phases can be built autonomously.
 ```
-Continue to setup_worktree step.
+Continue to build_loop step.
 </if>
 
 <if mode="yolo">
@@ -533,164 +456,6 @@ Continue to setup_worktree step.
 </if>
 </step>
 
-<step name="setup_worktree">
-**Setup git worktree for isolated development:**
-
-**If `WORKTREE_MODE=false`:** Skip this entire step. Set `WORKTREE_ACTIVE=false`. All work happens on the current branch.
-```
-Working directly on main branch. No worktree isolation.
-```
-Continue to build_loop.
-
-**If `WORKTREE_MODE=true`:**
-
-All development happens in a sibling worktree directory. The main branch stays untouched
-so crons, parallel sessions, and other processes keep running.
-
-**Each GSD project gets its own worktree.** Multiple projects in the same repo can run in parallel
-on separate branches. Merges happen independently.
-
-**Derive project slug for worktree isolation:**
-```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
-REPO_NAME=$(basename "$REPO_ROOT")
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-
-# Derive project slug from .planning/ location relative to repo root
-PLANNING_DIR=$(realpath .planning)
-PROJECT_REL=$(realpath --relative-to="$REPO_ROOT" "$PLANNING_DIR" | sed 's|/.planning||; s|/|-|g')
-if [ "$PROJECT_REL" = ".planning" ] || [ -z "$PROJECT_REL" ]; then
-    PROJECT_SLUG="root"
-else
-    PROJECT_SLUG="$PROJECT_REL"
-fi
-
-WORKTREE_PATH="${REPO_ROOT}/../${REPO_NAME}-build-${PROJECT_SLUG}"
-BRANCH_NAME="build-${PROJECT_SLUG}-$(date +%Y%m%d-%H%M%S)"
-```
-
-This produces project-specific paths:
-- `mark-private-build-private-integrations-gmail` for the gmail project
-- `mark-private-build-private-integrations-transcripts` for the transcripts project
-- `mark-private-build-root` for a project at repo root
-
-Multiple GSD projects can run in parallel without worktree collisions.
-
-**If not a git repository:**
-```
-Not a git repository. Worktree workflow skipped.
-Continuing without worktree isolation.
-```
-Set `WORKTREE_ACTIVE=false` and continue to build_loop. All work happens in current directory.
-
-**If a worktree already exists at WORKTREE_PATH:**
-```bash
-if [ -d "$WORKTREE_PATH" ]; then
-  echo "EXISTING_WORKTREE"
-  # Check if it's a valid worktree
-  git -C "$WORKTREE_PATH" rev-parse --git-dir 2>/dev/null && echo "VALID" || echo "STALE"
-fi
-```
-
-**If EXISTING_WORKTREE and VALID:**
-```
-Existing build worktree found at {WORKTREE_PATH}
-Resuming work in existing worktree.
-```
-Set `WORKTREE_ACTIVE=true`. Read branch name from existing worktree:
-```bash
-BRANCH_NAME=$(git -C "$WORKTREE_PATH" rev-parse --abbrev-ref HEAD)
-```
-Skip worktree creation, continue to build_loop.
-
-**If EXISTING_WORKTREE and STALE:**
-```
-Stale worktree found. Cleaning up and creating fresh worktree.
-```
-```bash
-git worktree remove "$WORKTREE_PATH" --force 2>/dev/null || rm -rf "$WORKTREE_PATH"
-git worktree prune
-```
-Continue to worktree creation below.
-
-**Create worktree:**
-```bash
-git worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" "$CURRENT_BRANCH"
-```
-
-**Setup symlinks in worktree (critical for mark-private and similar repos):**
-```bash
-cd "$WORKTREE_PATH"
-
-# Try repo's own setup script first
-if [ -f setup_workspace.sh ]; then
-    ./setup_workspace.sh 2>/dev/null || true
-fi
-
-# Ensure critical symlinks exist (proviron tools/scripts)
-# Proviron is SHARED — all worktrees point to the same proviron repo (not copied)
-PROVIRON_DIR="${REPO_ROOT}/../proviron"
-if [ -d "$PROVIRON_DIR" ]; then
-    [ -L tools ] || ln -sf "$PROVIRON_DIR/tools" tools 2>/dev/null || true
-    [ -L scripts ] || ln -sf "$PROVIRON_DIR/scripts" scripts 2>/dev/null || true
-    [ -L .crossnote ] || ln -sf "$PROVIRON_DIR/.crossnote" .crossnote 2>/dev/null || true
-fi
-
-# Symlink databases and other binary/large files from main repo
-# (gitignored files don't exist in worktrees — symlink from main)
-PROJECT_DIR_IN_WORKTREE="$WORKTREE_PATH/$PROJECT_REL"
-PROJECT_DIR_IN_MAIN="$REPO_ROOT/$PROJECT_REL"
-if [ -d "$PROJECT_DIR_IN_MAIN" ]; then
-    for db in $(find "$PROJECT_DIR_IN_MAIN" -maxdepth 1 -name "*.db" -o -name "*.db-shm" -o -name "*.db-wal" -o -name "*.pkl" 2>/dev/null); do
-        dbname=$(basename "$db")
-        [ -f "$PROJECT_DIR_IN_WORKTREE/$dbname" ] || ln -sf "$db" "$PROJECT_DIR_IN_WORKTREE/$dbname" 2>/dev/null || true
-    done
-    # Symlink model directories (pickle files for ML)
-    for modeldir in $(find "$PROJECT_DIR_IN_MAIN" -maxdepth 1 -type d -name "models" 2>/dev/null); do
-        dirname=$(basename "$modeldir")
-        [ -e "$PROJECT_DIR_IN_WORKTREE/$dirname" ] || ln -sf "$modeldir" "$PROJECT_DIR_IN_WORKTREE/$dirname" 2>/dev/null || true
-    done
-fi
-```
-
-**Store worktree metadata:**
-```bash
-# Store in project-level .planning, not repo-level
-mkdir -p "$PROJECT_DIR_IN_WORKTREE/.planning"
-cat > "$PROJECT_DIR_IN_WORKTREE/.planning/.build-all-worktree.json" <<EOF
-{
-  "repo_root": "$REPO_ROOT",
-  "worktree_path": "$WORKTREE_PATH",
-  "project_dir": "$PROJECT_DIR_IN_WORKTREE",
-  "project_slug": "$PROJECT_SLUG",
-  "branch_name": "$BRANCH_NAME",
-  "base_branch": "$CURRENT_BRANCH",
-  "created": "$(date -Iseconds)"
-}
-EOF
-```
-
-Set `WORKTREE_ACTIVE=true`.
-
-```
-Created build worktree:
-  Branch: {BRANCH_NAME}
-  Path: {WORKTREE_PATH}
-  Project: {PROJECT_SLUG}
-  Base: {CURRENT_BRANCH}
-
-Main branch is untouched. All work happens in worktree.
-Proviron tools/scripts shared (not copied).
-Databases symlinked from main repo.
-```
-
-**IMPORTANT:** From this point forward, ALL file operations, git commands, and slash command invocations
-must operate within `WORKTREE_PATH`, not `REPO_ROOT`. When invoking slash commands, ensure the
-working directory is set to the worktree path.
-
-**PATH SAFETY:** Scripts in the worktree may have hardcoded absolute paths (e.g., `PRIVATE_ROOT = Path("/home/mark/Repositories/mark-private/private")`).
-These will resolve to the MAIN repo, not the worktree. For code that writes to `private/`, this is actually correct — knowledge documents should be written to the main knowledge base. For code that reads `.planning/` or project-specific files, use relative paths or `Path(__file__).parent`.
-</step>
 
 <step name="build_loop">
 **Build all phases sequentially (with issue resolution loop):**
@@ -703,9 +468,8 @@ This will plan and execute each phase sequentially.
 Each phase planning uses context from previous phase summaries.
 Open issues will be automatically addressed after roadmap phases complete.
 
-Worktree: {WORKTREE_PATH} (main branch untouched)
+All work on current branch (main).
 Loop mode: After completion, waits for review and checks for new issues
-Merge: Worktree branch merges to main at end of each cycle
 
 Starting build pipeline...
 ```
@@ -723,36 +487,13 @@ You'll be prompted at:
 - Open issues resolution (after roadmap phases complete)
 - Merge confirmation (if conflicts occur)
 
-Worktree: {WORKTREE_PATH} (main branch untouched)
+All work on current branch (main).
 Loop mode: After completion, waits for review and checks for new issues
-Merge: Worktree branch merges to main at end of each cycle
 
 Proceed with full build?
 ```
 Wait for confirmation.
 </if>
-
-**Early completion check (before entering main loop):**
-
-```bash
-# Check if ALL phases are already complete
-TOTAL_PHASES=$(grep -cE '^\s*- \[' .planning/ROADMAP.md 2>/dev/null || echo "0")
-DONE_PHASES=$(grep -cE '^\s*- \[x\]' .planning/ROADMAP.md 2>/dev/null || echo "0")
-OPEN_ISSUES=$(awk '/^## Open Enhancements/,0 { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md 2>/dev/null || echo "0")
-echo "PHASES=$DONE_PHASES/$TOTAL_PHASES ISSUES=$OPEN_ISSUES"
-```
-
-**If all phases complete AND 0 open issues AND `DAEMON_MODE=true`:**
-```
-All phases complete ({DONE_PHASES}/{TOTAL_PHASES}), 0 open issues.
-Entering daemon mode — polling for new issues...
-```
-**Go directly to `daemon_loop` step.** Do NOT exit. The whole point of `--daemon` is to keep running.
-
-**If all phases complete AND 0 open issues AND `DAEMON_MODE=false`:**
-Show completion summary and exit (existing behavior).
-
-**Otherwise:** Continue to main build loop below.
 
 **Main build loop (continues until no phases or issues remain):**
 
@@ -843,7 +584,7 @@ Show completion summary and exit (existing behavior).
 
    **Otherwise:** Skip silently.
 
-   **2c. Check if research needed:**
+   **2c. Check if research needed (before planning):**
 
    Research is needed when ANY of these are true:
    - `RESEARCH_ALWAYS=true` (from config.json `workflow.research=true`) AND no RESEARCH.md exists for this phase
@@ -857,7 +598,7 @@ Show completion summary and exit (existing behavior).
    ```
    Wait for research to complete.
 
-   **2c. Plan the phase:**
+   **2d. Plan the phase:**
    ```
    Planning Phase {X}: {Phase Name}
    /gsd:plan-phase {X}
@@ -911,9 +652,17 @@ Show completion summary and exit (existing behavior).
    Continue to next phase.
 
    **If `human_needed`:**
+
+   <if DAEMON_MODE="true">
+   Log human verification items but continue — daemon can't wait for human input.
+   File items as issues in ISSUES.md for manual follow-up.
+   </if>
+
+   <if DAEMON_MODE="false">
    Read human_verification section from VERIFICATION.md. Present items to user:
    - "Validate now" — present specific items, ask for result
    - "Continue without validation" — defer validation, proceed
+   </if>
 
    **If `gaps_found`:**
    Read gap summary (score, quality scores, and missing items). Display:
@@ -969,8 +718,7 @@ Show completion summary and exit (existing behavior).
 - Continue until no phases remain AND no open issues remain
 
 **If no issues OR all issues addressed:**
-- Continue to merge_worktree step
-- After merge, continue to loop_mode step (check for new issues)
+- Continue to lifecycle step
 
 **Step 5a. Check for open issues:**
 ```bash
@@ -1108,95 +856,6 @@ Proceeding to merge and lifecycle...
 ```
 </step>
 
-<step name="merge_worktree">
-**Merge worktree branch back to main (or base branch):**
-
-**Only if WORKTREE_ACTIVE=true:**
-
-```bash
-# Read worktree metadata
-cat "$WORKTREE_PATH/.planning/.build-all-worktree.json"
-```
-
-Extract `repo_root`, `branch_name`, `base_branch`.
-
-**1. Ensure all changes in worktree are committed:**
-```bash
-cd "$WORKTREE_PATH"
-if [ -n "$(git status --porcelain)" ]; then
-  echo "UNCOMMITTED_CHANGES"
-else
-  echo "CLEAN"
-fi
-```
-
-If UNCOMMITTED_CHANGES:
-```
-Uncommitted changes detected in worktree. Committing...
-```
-```bash
-cd "$WORKTREE_PATH"
-git add -A
-git commit -m "chore: commit remaining changes before merge"
-```
-
-**2. Switch to main repo and merge:**
-```bash
-cd "$REPO_ROOT"
-git merge "$BRANCH_NAME" --no-ff -m "Merge build: $BRANCH_NAME"
-```
-
-**3. Handle merge conflicts:**
-- If conflicts occur, show error and pause
-- In interactive mode: Wait for user to resolve
-- In YOLO mode: Attempt automatic resolution if possible, otherwise pause
-
-**If merge successful:**
-```
-Successfully merged {BRANCH_NAME} to {BASE_BRANCH}
-All build work is now on the main branch.
-```
-
-**4. Push if remote exists:**
-```bash
-cd "$REPO_ROOT"
-git remote get-url origin 2>/dev/null && git push origin "$BASE_BRANCH" || true
-```
-
-**5. Cleanup worktree and branch:**
-```bash
-cd "$REPO_ROOT"
-git worktree remove "$WORKTREE_PATH"
-git branch -d "$BRANCH_NAME"
-```
-
-```
-Worktree cleaned up:
-  Removed: {WORKTREE_PATH}
-  Deleted branch: {BRANCH_NAME}
-```
-
-**If merge failed:**
-```
-Merge conflicts detected
-
-Please resolve conflicts manually:
-1. cd {REPO_ROOT}
-2. Fix conflicts in affected files
-3. Run: git add <resolved-files>
-4. Run: git commit
-5. Then cleanup: git worktree remove {WORKTREE_PATH} && git branch -d {BRANCH_NAME}
-
-Or to abort the merge:
-  git merge --abort
-```
-Pause and wait for user to resolve.
-
-**If WORKTREE_ACTIVE=false:**
-```
-No worktree active. Skipping merge.
-```
-</step>
 
 <step name="lifecycle">
 **Lifecycle: audit -> complete -> cleanup (from autonomous.md):**
@@ -1231,14 +890,28 @@ Audit passed — proceeding to complete milestone
 ```
 
 **If `gaps_found`:**
+
+<if DAEMON_MODE="true">
+Log gaps but continue — file as issues for next cycle.
+</if>
+
+<if DAEMON_MODE="false">
 Read the gaps summary. Ask user:
 - "Continue anyway — accept gaps" -> proceed
 - "Stop — fix gaps manually" -> pause
+</if>
 
 **If `tech_debt`:**
+
+<if DAEMON_MODE="true">
+Log tech debt but continue.
+</if>
+
+<if DAEMON_MODE="false">
 Read the tech debt summary. Ask user:
 - "Continue with tech debt" -> proceed
 - "Stop — address debt first" -> pause
+</if>
 
 **If audit file missing or no status:**
 Log warning but continue — audit may not be configured for all projects.
@@ -1304,7 +977,6 @@ Lifecycle complete: audit-uat -> audit -> complete -> milestone-summary -> docs-
 
 At this point, the build cycle should be complete:
 - All phases planned and executed
-- Worktree merged to main (if worktree workflow used)
 - Lifecycle completed (audit, complete, cleanup)
 - Status file updated
 
@@ -1320,7 +992,6 @@ At this point, the build cycle should be complete:
 - All summaries created
 - All commits made
 - All open issues addressed (if applicable)
-- Worktree merged and cleaned up
 - Lifecycle: audit -> complete -> cleanup
 - Status file updated: .planning/.build-all-status.json
 
@@ -1354,8 +1025,7 @@ Please review and respond:
 
 **If CONTINUE (check for new issues):**
 - Re-read ISSUES.md and count open issues
-- Compare with count at start of cycle
-- If new issues found, return to `setup_worktree` step (new worktree for new cycle)
+- If new issues found, return to `build_loop` step (process new issues)
 - If no new issues, proceed to `post_evaluation`
 
 **If WATCH (enter daemon mode):**
@@ -1436,10 +1106,47 @@ Output is a single number: `0` or `3`.
 - After resolving, update status timestamp and **return to poll loop**
 
 **If `OPEN_ISSUES = 0`:**
-- Sleep 60 seconds:
-  ```bash
-  sleep 60
-  ```
+
+**Idle housekeeping (use wait time productively):**
+
+Instead of just sleeping, use idle cycles for maintenance tasks. Run ONE task per idle cycle, then poll again.
+Track which tasks have been completed in this daemon session to avoid repeating them.
+
+```bash
+# Check what housekeeping is needed
+HOUSEKEEPING_DONE=${HOUSEKEEPING_DONE:-""}
+```
+
+**Priority order (run first uncompleted task, then sleep + poll):**
+
+1. **Documentation review** (if not yet done this session):
+   - Scan all files modified in the last milestone
+   - Check READMEs, docstrings, inline comments match current code
+   - Update stale documentation, remove references to deleted features
+   - Commit changes: `docs: update documentation during idle housekeeping`
+   - Mark: `HOUSEKEEPING_DONE="$HOUSEKEEPING_DONE|docs"`
+
+2. **Dead code cleanup** (if not yet done):
+   - Find exported functions/classes that are never imported elsewhere
+   - Find unused imports
+   - Remove confirmed dead code (conservative — only remove if zero references)
+   - Commit: `refactor: remove dead code during idle housekeeping`
+   - Mark: `HOUSEKEEPING_DONE="$HOUSEKEEPING_DONE|deadcode"`
+
+3. **Code quality pass** (if not yet done):
+   - Run linter if available (`npm run lint`, `ruff check`, etc.)
+   - Fix auto-fixable issues
+   - Commit: `style: fix lint issues during idle housekeeping`
+   - Mark: `HOUSEKEEPING_DONE="$HOUSEKEEPING_DONE|lint"`
+
+4. **Test coverage review** (if not yet done):
+   - Check if existing tests still pass
+   - Identify untested functions in recently modified files
+   - Generate missing tests via `/gsd:add-tests` for the most recent completed phase
+   - Mark: `HOUSEKEEPING_DONE="$HOUSEKEEPING_DONE|tests"`
+
+**After housekeeping task (or if all done):**
+- Sleep 60 seconds: `sleep 60`
 - Return to poll loop
 
 **3. Exit conditions:**
@@ -1473,7 +1180,6 @@ At the end of the run, do a quick retrospective to make the next run faster and 
 - Which recurring failure modes should be handled (status tracking, workspace detection, edge cases)?
 - What user feedback suggests improvements?
 - How can status tracking be improved?
-- Were there worktree-specific issues (symlink setup, path resolution)?
 
 **Apply the improvements to this command file** (`commands/gsd/build-all.md`).
 
@@ -1491,76 +1197,6 @@ git commit -m "chore(commands): improve build-all workflow based on retrospectiv
 If **NO**, do not commit (leave changes unstaged or revert).
 </step>
 
-<step name="status_tracking">
-**Status tracking: Update status and wait for user/external process:**
-
-**Status file location:** `.planning/.build-all-status.json`
-
-**Purpose:** Allow external processes (test runners, CI, debug workflows) to monitor build progress and coordinate issue resolution.
-
-**After merge completes, update status:**
-
-1. **Update status file:**
-   ```bash
-   # Create status file
-   cat > .planning/.build-all-status.json <<EOF
-   {
-     "status": "ready",
-     "phase": "review",
-     "timestamp": "$(date -Iseconds)",
-     "branch": "$(git rev-parse --abbrev-ref HEAD)",
-     "worktree_active": false,
-     "phases_completed": $(ls .planning/phases/*/SUMMARY.md 2>/dev/null | wc -l),
-     "open_issues": $(awk '/^## Open Enhancements/,/^## / { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md 2>/dev/null || echo 0)
-   }
-   EOF
-   ```
-
-2. **Status values:**
-   - `"status": "active"` - Currently building (workflow in progress)
-   - `"status": "ready"` - Build complete, waiting for review
-   - `"status": "waiting"` - Waiting for external process to create issues
-   - `"status": "done"` - User said "enough", build complete
-
-3. **Show completion summary:**
-   ```
-   Build Cycle Complete!
-
-   All phases planned and executed
-   Total phases: {N}
-   All summaries created
-   All commits made
-   All open issues addressed (if applicable)
-   Status file updated: .planning/.build-all-status.json
-
-   Waiting for review or external process...
-   ```
-
-**External monitoring:**
-- Python script can read status file to check if build is ready
-- When status is "ready", external process can run tests and create issues
-- After issues created, user can restart build cycle
-- Status updates automatically at each phase transition
-
-**Optional: External monitoring for coordination**
-
-If you have an external process (e.g., test runner, debug workflow, CI) that creates issues:
-
-1. External process monitors `.planning/.build-all-status.json`
-2. When status is "ready", external process can:
-   - Run tests/validation
-   - Create new issues in `.planning/ISSUES.md`
-   - Update its own status file (e.g., `.planning/.external-status.json`)
-3. User can use CONTINUE option to check for new issues and restart cycle
-
-This enables closed-loop development where:
-- build-all builds the code
-- External process validates and creates issues
-- build-all addresses issues
-- Loop continues until no new issues
-
-**Note:** External monitoring is optional. Without it, build-all still works as a one-shot full project builder.
-</step>
 
 <step name="handle_checkpoints">
 **Handle blocking checkpoints during execution:**
@@ -1590,11 +1226,8 @@ In interactive mode:
 - [ ] Planning structure verified
 - [ ] Roadmap exists (or project initialized via /gsd:new-project)
 - [ ] Critical roadmap evaluation completed — every phase reviewed with definition of done
-- [ ] Branch strategy recommended based on roadmap analysis (not asked blind)
 - [ ] Pre-flight check completed (dependencies identified, PREFLIGHT.md generated)
 - [ ] Blocking dependencies resolved (or user chose to skip)
-- [ ] If worktree mode: Git worktree created in sibling directory (main branch untouched)
-- [ ] If worktree mode: Symlinks set up in worktree (setup_workspace.sh or manual fallback)
 - [ ] All phases identified from roadmap
 - [ ] Smart discuss runs before planning (infrastructure detection or batch table proposals)
 - [ ] Research checked for EVERY phase (respects config.workflow.research flag)
@@ -1607,8 +1240,6 @@ In interactive mode:
 - [ ] Pipeline pauses only at blocking checkpoints
 - [ ] Open issues checked after all phases complete
 - [ ] User notified if open issues exist (not in roadmap)
-- [ ] Worktree branch merged to main after cycle complete
-- [ ] Worktree cleaned up after successful merge
 - [ ] Health check run at startup (.planning/ integrity)
 - [ ] Codebase mapped if brownfield project with no .planning/codebase/ docs
 - [ ] UI-SPEC generated for frontend phases (before planning)
@@ -1624,7 +1255,6 @@ In interactive mode:
 - [ ] WATCH/--daemon mode enters polling loop on ISSUES.md (no signal protocol needed)
 - [ ] Post-evaluation completed and improvements applied
 - [ ] Final summary shows completion status and open issues count
-- [ ] Worktree recovery instructions documented in objective
 </success_criteria>
 </output>
 
