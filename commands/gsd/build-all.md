@@ -115,8 +115,8 @@ If something goes wrong mid-build:
 
 <process>
 
-<step name="parse_flags">
-**Parse arguments:**
+<step name="parse_flags" priority="first">
+**Parse arguments — THIS STEP RUNS FIRST, BEFORE ANYTHING ELSE:**
 
 - `--daemon` → Set `DAEMON_MODE=true`. Skips review gate, enters autonomous issue loop after build.
 - No flag → `DAEMON_MODE=false`. Normal interactive build with review gate.
@@ -125,6 +125,38 @@ If something goes wrong mid-build:
 DAEMON_MODE=false
 [[ "$ARGUMENTS" =~ --daemon ]] && DAEMON_MODE=true
 ```
+
+**CRITICAL — Daemon fast-path for completed projects:**
+
+If `DAEMON_MODE=true`, check immediately if the project is already complete:
+
+```bash
+if [ "$DAEMON_MODE" = "true" ] && [ -f .planning/ROADMAP.md ]; then
+    TOTAL=$(grep -cE '^\s*- \[' .planning/ROADMAP.md 2>/dev/null || echo "0")
+    DONE=$(grep -cE '^\s*- \[x\]' .planning/ROADMAP.md 2>/dev/null || echo "0")
+    OPEN=$(awk '/^## Open Enhancements/,0 { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md 2>/dev/null || echo "0")
+    echo "DAEMON_CHECK|phases=$DONE/$TOTAL|issues=$OPEN"
+fi
+```
+
+**If `DAEMON_MODE=true` AND all phases complete (`DONE == TOTAL`) AND `OPEN == 0`:**
+
+**STOP HERE. Do NOT continue to verify, check_roadmap, load_roadmap, critical_evaluation, or any other step.**
+
+**Go DIRECTLY to `daemon_loop` step.** Show:
+
+```
+Daemon mode — all {TOTAL} phases complete, 0 open issues.
+Entering polling loop on .planning/ISSUES.md...
+```
+
+**This override is absolute.** The user explicitly asked for daemon mode. Do not suggest alternatives, do not show completion summaries, do not offer /gsd:new-milestone. Enter the daemon loop and start polling.
+
+**If `DAEMON_MODE=true` AND phases remaining OR issues open:**
+Continue to normal flow (verify → load_roadmap → build_loop). After build completes, daemon_loop will be entered instead of review_gate.
+
+**If `DAEMON_MODE=false`:**
+Continue to verify step (normal flow).
 </step>
 
 <step name="verify">
