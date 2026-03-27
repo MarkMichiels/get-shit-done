@@ -92,7 +92,9 @@ If `DAEMON_MODE=true`, check immediately if the project is already complete:
 if [ "$DAEMON_MODE" = "true" ] && [ -f .planning/ROADMAP.md ]; then
     TOTAL=$(grep -cE '^\s*- \[' .planning/ROADMAP.md 2>/dev/null || echo "0")
     DONE=$(grep -cE '^\s*- \[x\]' .planning/ROADMAP.md 2>/dev/null || echo "0")
-    OPEN=$(awk '/^## Open Enhancements/,0 { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md 2>/dev/null || echo "0")
+    BUGS=$(awk '/^## Open Bugs/,/^## / { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null || echo "0")
+    ENH=$(awk '/^## Open Enhancements/,/^## / { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null || echo "0")
+    OPEN=$((BUGS + ENH))
     echo "DAEMON_CHECK|phases=$DONE/$TOTAL|issues=$OPEN"
 fi
 ```
@@ -117,10 +119,67 @@ Continue to normal flow (verify → load_roadmap → build_loop). After build co
 Continue to verify step (normal flow).
 </step>
 
+<step name="discover_project">
+**Find the correct .planning/ directory:**
+
+The working directory may contain multiple GSD projects in subdirectories. The correct project
+must be identified BEFORE any other step runs. All subsequent steps use relative `.planning/` paths,
+so the working directory must be set to the project root.
+
+```bash
+# Find all .planning/ directories (exclude worktrees, node_modules, milestones)
+find . -name ".planning" -type d \
+    -not -path "*/node_modules/*" \
+    -not -path "*/.history/*" \
+    -not -path "*/.claude/worktrees/*" \
+    2>/dev/null | while read d; do
+    [[ "$d" == */milestones/* ]] && continue
+    [[ "$d" == *-build-* ]] && continue
+    # Only count dirs that have ROADMAP.md or PROJECT.md (real GSD projects)
+    [ -f "$d/ROADMAP.md" ] || [ -f "$d/PROJECT.md" ] && echo "$(dirname "$d")"
+done
+```
+
+**If exactly 1 project found:** `cd` to that directory. Continue.
+
+**If 0 projects found:** Check if `.planning/` exists in current directory (new project without ROADMAP yet).
+If yes, stay in current directory. If no, exit with "No planning structure found."
+
+**If multiple projects found:**
+Match the session name (from `--name` flag used at launch) against project paths.
+The session name typically contains the project name (e.g., `reactor-machine-daemon`, `gmail-build`).
+
+```bash
+# Example: session name "reactor-machine-daemon" should match
+# ./tools/integrations/reactor_machine/.planning/
+```
+
+Compare each project path against the session name using fuzzy matching:
+- Convert both to lowercase
+- Replace `-` and `_` with spaces
+- Check if any project path segments appear in the session name
+
+If a match is found: `cd` to that project directory. Show:
+```
+Found GSD project: {project_path} (matched session name)
+```
+
+If no match: list all found projects and exit with:
+```
+Multiple GSD projects found. Specify which one by running from the project directory,
+or use a session name that matches the project (e.g., --name "reactor-machine-daemon").
+
+Projects:
+  1. ./tools/integrations/reactor_machine/
+  2. ./private/integrations/gmail/
+  ...
+```
+</step>
+
 <step name="verify">
 **Verify planning structure exists:**
 
-If no `.planning/` directory:
+If no `.planning/` directory in the current working directory (after discover_project):
 ```
 No planning structure found.
 
@@ -722,10 +781,11 @@ Wait for confirmation.
 
 **Step 5a. Check for open issues:**
 ```bash
-# Check if ISSUES.md exists
+# Count open bugs AND enhancements (exclude resolved ~~ISS~~ entries)
 if [ -f .planning/ISSUES.md ]; then
-  # Count open issues (ISS-XXX entries in "## Open Enhancements" section)
-  awk '/^## Open Enhancements/,/^## / { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md
+  BUGS=$(awk '/^## Open Bugs/,/^## / { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md)
+  ENH=$(awk '/^## Open Enhancements/,/^## / { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md)
+  echo "$((BUGS + ENH))"
 else
   echo "0"
 fi
@@ -1039,9 +1099,10 @@ Entered when `DAEMON_MODE=true` (via `--daemon` flag) or when user selects WATCH
 Can also be entered in a session where all phases are already complete — build-all detects this
 and skips straight to the loop.
 
-**The loop is dead simple: poll ISSUES.md, act if issues found, sleep if not.**
+**How it works:** Uses `inotifywait` to block until ISSUES.md is modified, then reads and acts.
+Falls back to 30-minute timeout for resilience. No polling, no background processes, no parallel sleeps.
 
-**1. Update status:**
+**1. Update status and show banner:**
 ```bash
 cat > .planning/.build-all-status.json <<EOF
 {
@@ -1049,7 +1110,7 @@ cat > .planning/.build-all-status.json <<EOF
   "phase": "issue-loop",
   "timestamp": "$(date -Iseconds)",
   "branch": "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)",
-  "poll_interval_seconds": 60
+  "poll_interval_seconds": 1800
 }
 EOF
 ```
@@ -1057,23 +1118,48 @@ EOF
 ```
 ## Daemon Mode Active
 
-Polling .planning/ISSUES.md every 60 seconds.
+Watching .planning/ISSUES.md for changes (inotifywait).
 Any session that writes issues to ISSUES.md will be automatically picked up.
 
 To stop: type anything in this session.
 ```
 
-**2. Poll loop:**
+**2. Wait for changes:**
+
+Run this as a **foreground** Bash call (NOT background). This blocks until ISSUES.md changes or 30 minutes pass:
 
 ```bash
-sleep 60 && awk '/^## Open Enhancements/,0 { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md 2>/dev/null || echo 0
+inotifywait -t 1800 -e modify .planning/ISSUES.md 2>/dev/null; EXIT=$?; sleep 10; if [ $EXIT -eq 0 ]; then echo "ISSUES_CHANGED"; else echo "TIMEOUT"; fi
 ```
 
-Output is a single number: `0` or `3`.
+The `sleep 10` is a debounce — waits for the writer to finish (they may do multiple edits).
 
-**If `OPEN_ISSUES > 0`:**
-- Read ISSUES.md to analyze issues
-- **Classify each issue:**
+This command returns exactly one of two strings:
+- `ISSUES_CHANGED` — the file was modified by another session
+- `TIMEOUT` — 30 minutes passed with no changes
+
+**CRITICAL:** Do NOT run this in background. Run it as a normal foreground Bash call. You will wait for the result. When it returns, proceed to step 3.
+
+**3. Read and count issues:**
+
+When the wait returns (either trigger), read ISSUES.md and count open issues:
+
+```bash
+BUGS=$(awk '/^## Open Bugs/,/^## / { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null)
+ENH=$(awk '/^## Open Enhancements/,/^## / { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null)
+echo "OPEN_BUGS=$BUGS OPEN_ENH=$ENH TOTAL=$((BUGS + ENH))"
+```
+
+**4. Act on result:**
+
+**If TOTAL > 0 (issues found):**
+
+Read ISSUES.md fully to understand the issues:
+```bash
+cat .planning/ISSUES.md
+```
+
+Classify each open (non-strikethrough) issue:
 
   **Regular issues** (Type: Bug/Feature/etc.):
   - Follow existing issue resolution logic from build_loop step 5a
@@ -1103,18 +1189,14 @@ Output is a single number: `0` or `3`.
     ```
   - Commit the return issue in the requester's ISSUES.md
 
-- After resolving, update status timestamp and **return to poll loop**
+After resolving all issues, update status timestamp and **go back to step 2** (wait for changes again).
 
-**If `OPEN_ISSUES = 0`:**
+**If TOTAL = 0 (no issues — either timeout or file changed but no open issues):**
 
 **Idle housekeeping (use wait time productively):**
 
-Instead of just sleeping, use idle cycles for maintenance tasks. Run ONE task per idle cycle, then poll again.
+Run ONE housekeeping task, then go back to step 2 (wait for changes again).
 Track which tasks have been completed in this daemon session to avoid repeating them.
-
-**Idle housekeeping — run ONE task per idle cycle, log to status file:**
-
-Track completed tasks to avoid repeating. After each task, update status and poll again.
 
 **Priority order (run first uncompleted):**
 
@@ -1128,27 +1210,26 @@ Track completed tasks to avoid repeating. After each task, update status and pol
 
 **After each task, update status file with what was done:**
 ```bash
-# Read current status, add housekeeping entry
 python3 -c "
-import json
+import json, datetime
 with open('.planning/.build-all-status.json') as f: s = json.load(f)
-s.setdefault('housekeeping', []).append({'task': 'TASK_NAME', 'at': 'TIMESTAMP', 'commit': 'HASH'})
-s['timestamp'] = 'TIMESTAMP'
+s.setdefault('housekeeping', []).append({'task': 'TASK_NAME', 'at': '$(date -Iseconds)', 'commit': 'HASH'})
+s['timestamp'] = '$(date -Iseconds)'
 with open('.planning/.build-all-status.json', 'w') as f: json.dump(s, f, indent=2)
 "
 ```
 
-**After task (or if all 4 done):** sleep 60, return to poll loop.
+**After task (or if all 4 done):** Go back to step 2 (wait for changes again).
 
-**3. Exit conditions:**
+**5. Exit conditions:**
 
 The daemon runs indefinitely. It exits only when:
 - User types anything in the session → Claude receives input → show summary and ask:
   "Continue daemon?" / "Stop"
 - The session is killed externally (kitty close, ctrl+c)
 
-**No timeout.** The daemon is meant to run for hours. Status file stays updated so other
-sessions can see it's alive.
+**No timeout on the loop itself.** Each wait cycle is 30 minutes max, but the loop repeats forever.
+Status file stays updated so other sessions can see it's alive.
 
 </step>
 
