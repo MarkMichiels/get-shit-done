@@ -245,34 +245,34 @@ Use AskUserQuestion:
 <step name="complete">
 **Present completion and next steps:**
 
-**Check if build-all is watching:**
+**Check if build-all daemon is running:**
 ```bash
-BUILD_STATUS=$(cat .planning/.build-all-status.json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+BUILD_STATUS=$(python3 -c "import json; print(json.load(open('.planning/.build-all-status.json')).get('status',''))" 2>/dev/null || echo "")
 ```
 
-**If build-all is watching (`BUILD_STATUS` = `watching`):**
+**If `BUILD_STATUS` is `daemon`:**
 ```
-✓ Issue ISS-{NEXT_ISS} created in .planning/ISSUES.md
+✓ Issue ISS-{NEXT_ISS} submitted to .planning/ISSUES.md
 
 {Brief description}
 
 Impact: {Impact} | Effort: {Effort} | Suggested: {Suggested phase}
 
-Build-all is watching for new issues.
+Build-all daemon is polling — it will pick up this issue within 60 seconds.
 ```
+No signal needed. The daemon polls ISSUES.md directly.
 
 Use AskUserQuestion:
 - header: "Next"
-- question: "Build-all is in watch mode. Signal it to pick up this issue?"
+- question: "What would you like to do?"
 - options:
-  - "Signal build-all" — Run `bash "$HOME/.claude/get-shit-done/bin/gsd-signal.sh" .planning`, then show "Build-all notified — it will pick up this issue automatically."
-  - "Create another issue first" — Run /gsd:create-issue again (collect more issues before signaling)
-  - "Signal later" — Don't signal yet, back to work. User runs `issue-signal.sh` manually when ready.
-  - "Create phase instead" — Run /gsd:add-phase or /gsd:insert-phase (bypass build-all, plan directly)
+  - "Create another issue" — Run /gsd:create-issue again
+  - "Continue working" — Issue logged, back to work
+  - "Create phase instead" — Run /gsd:add-phase (bypass daemon, plan directly)
 
-**If build-all is NOT watching (or no status file):**
+**If build-all is NOT running as daemon (or no status file):**
 ```
-✓ Issue ISS-{NEXT_ISS} created in .planning/ISSUES.md
+✓ Issue ISS-{NEXT_ISS} submitted to .planning/ISSUES.md
 
 {Brief description}
 
