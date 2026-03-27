@@ -41,12 +41,21 @@ This respects the iterative planning principle:
 - Worktree is cleaned up after successful merge
 - If something goes wrong, recovery is straightforward (see Worktree Recovery below)
 
-**Interactive mode:**
+**Interactive mode (default):**
 - Workflow continues until user explicitly says "it's done" or "enough"
 - Status is tracked in `.planning/.build-all-status.json` for external monitoring
 - Review gate after each cycle for user feedback
 - Post-evaluation to improve the command itself
 - External process can optionally monitor status file for coordination
+
+**Daemon mode (`--daemon`):**
+- After building all phases, enters autonomous polling loop
+- Polls `.planning/ISSUES.md` every 60 seconds for new issues
+- Automatically plans + executes any new issues found
+- No review gate, no user interaction required
+- Runs indefinitely until session is closed or user intervenes
+- Other sessions (debug, create-issue) just write to ISSUES.md — daemon picks it up
+- Can be started on already-completed projects (skips to polling immediately)
 
 ## Parallel Projects
 
@@ -105,6 +114,18 @@ If something goes wrong mid-build:
 </context>
 
 <process>
+
+<step name="parse_flags">
+**Parse arguments:**
+
+- `--daemon` → Set `DAEMON_MODE=true`. Skips review gate, enters autonomous issue loop after build.
+- No flag → `DAEMON_MODE=false`. Normal interactive build with review gate.
+
+```bash
+DAEMON_MODE=false
+[[ "$ARGUMENTS" =~ --daemon ]] && DAEMON_MODE=true
+```
+</step>
 
 <step name="verify">
 **Verify planning structure exists:**
@@ -658,6 +679,28 @@ Proceed with full build?
 Wait for confirmation.
 </if>
 
+**Early completion check (before entering main loop):**
+
+```bash
+# Check if ALL phases are already complete
+TOTAL_PHASES=$(grep -cE '^\s*- \[' .planning/ROADMAP.md 2>/dev/null || echo "0")
+DONE_PHASES=$(grep -cE '^\s*- \[x\]' .planning/ROADMAP.md 2>/dev/null || echo "0")
+OPEN_ISSUES=$(awk '/^## Open Enhancements/,0 { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md 2>/dev/null || echo "0")
+echo "PHASES=$DONE_PHASES/$TOTAL_PHASES ISSUES=$OPEN_ISSUES"
+```
+
+**If all phases complete AND 0 open issues AND `DAEMON_MODE=true`:**
+```
+All phases complete ({DONE_PHASES}/{TOTAL_PHASES}), 0 open issues.
+Entering daemon mode — polling for new issues...
+```
+**Go directly to `daemon_loop` step.** Do NOT exit. The whole point of `--daemon` is to keep running.
+
+**If all phases complete AND 0 open issues AND `DAEMON_MODE=false`:**
+Show completion summary and exit (existing behavior).
+
+**Otherwise:** Continue to main build loop below.
+
 **Main build loop (continues until no phases or issues remain):**
 
 **For each phase in roadmap order:**
@@ -1107,6 +1150,8 @@ Lifecycle complete: audit -> complete -> cleanup
 </step>
 
 <step name="review_gate">
+**If `DAEMON_MODE=true`:** Skip review gate entirely. Go directly to `daemon_loop` step.
+
 **Review gate: Pause for user review (Y/N/ENOUGH/CONTINUE to proceed):**
 
 At this point, the build cycle should be complete:
@@ -1165,92 +1210,75 @@ Please review and respond:
 - If new issues found, return to `setup_worktree` step (new worktree for new cycle)
 - If no new issues, proceed to `post_evaluation`
 
-**If WATCH (enter watch mode):**
-- Proceed to `issue_watch` step
+**If WATCH (enter daemon mode):**
+- Proceed to `daemon_loop` step
 </step>
 
-<step name="issue_watch">
-**Issue Watch Mode: Block until external process signals new issues**
+<step name="daemon_loop">
+**Daemon Mode: Autonomous issue polling loop**
 
-Watch mode allows build-all to stay alive while an external process (debug session,
-test runner, user in another terminal) collects and files issues. Build-all blocks
-on a bash command and resumes when signaled.
+Entered when `DAEMON_MODE=true` (via `--daemon` flag) or when user selects WATCH from review gate.
+Can also be entered in a session where all phases are already complete — build-all detects this
+and skips straight to the loop.
 
-**Protocol:**
-- Issues are written to `.planning/ISSUES.md` (data — can take multiple steps)
-- External process signals readiness via `scripts/issue-signal.sh` (atomic JSON write)
-- Build-all watches via `scripts/issue-wait.sh` (blocks until signal or timeout)
-- After pickup, build-all clears the signal and processes issues
+**The loop is dead simple: poll ISSUES.md, act if issues found, sleep if not.**
 
-**1. Update status and enter watch:**
+**1. Update status:**
 ```bash
-# Update status file
 cat > .planning/.build-all-status.json <<EOF
 {
-  "status": "watching",
-  "phase": "issue-watch",
+  "status": "daemon",
+  "phase": "issue-loop",
   "timestamp": "$(date -Iseconds)",
-  "watching_for": ".build-all-inbox.json",
-  "signal_command": "bash $GSD_DIR/scripts/issue-signal.sh .planning"
+  "branch": "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)",
+  "poll_interval_seconds": 60
 }
 EOF
 ```
 
 ```
-## Entering Watch Mode
+## Daemon Mode Active
 
-Build-all is waiting for new issues.
-Status: .planning/.build-all-status.json → "watching"
+Polling .planning/ISSUES.md every 60 seconds.
+Any session that writes issues to ISSUES.md will be automatically picked up.
 
-To signal new issues from another session:
-
-  1. Write issues to .planning/ISSUES.md
-  2. Run: bash {GSD_DIR}/scripts/issue-signal.sh .planning
-
-Or from a GSD debug session:
-
-  /gsd:debug → find issues → signal when done
-
-Timeout: 10 minutes (then asks to continue or stop)
+To stop: type anything in this session.
 ```
 
-**2. Block on watch script:**
+**2. Poll loop:**
+
 ```bash
-GSD_DIR="$HOME/.claude/get-shit-done"
-RESULT=$(bash "$GSD_DIR/scripts/issue-wait.sh" .planning 600)
-echo "$RESULT"
+# Single poll — run this in a loop
+OPEN_ISSUES=$(awk '/^## Open Enhancements/,0 { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md 2>/dev/null || echo "0")
+echo "POLL|$OPEN_ISSUES|$(date -Iseconds)"
 ```
 
-**3. Handle result:**
+**If `OPEN_ISSUES > 0`:**
+- Read ISSUES.md to analyze issues
+- Follow existing issue resolution logic from build_loop step 5a:
+  - Group issues, determine strategy (hotfix milestone vs add phase)
+  - Create phase/milestone
+  - Plan + execute
+  - Verify
+- After resolving, update status timestamp and **return to poll loop**
 
-**If `ISSUES_READY|N|source`:**
-```
-Issues signaled: {N} new issues from {source}
-```
-- Clear the inbox: `bash "$GSD_DIR/scripts/issue-signal.sh" --reset .planning`
-- Read ISSUES.md to analyze new issues
-- Follow existing issue resolution logic (create phase/milestone, plan, execute)
-- After resolving, return to `review_gate` (user can WATCH again for more)
+**If `OPEN_ISSUES = 0`:**
+- Sleep 60 seconds:
+  ```bash
+  sleep 60
+  ```
+- Return to poll loop
 
-**If `TIMEOUT`:**
-```
-Watch timeout — no new issues signaled in 10 minutes.
+**3. Exit conditions:**
 
-Options:
-- WATCH = keep watching (another 10 minutes)
-- ENOUGH = stop, mark as done
-```
+The daemon runs indefinitely. It exits only when:
+- User types anything in the session → Claude receives input → show summary and ask:
+  "Continue daemon?" / "Stop"
+- The session is killed externally (kitty close, ctrl+c)
 
-Use AskUserQuestion with "WATCH" and "ENOUGH" options.
+**No timeout.** The daemon is meant to run for hours. Status file stays updated so other
+sessions can see it's alive.
 
-**If WATCH again:** Re-enter this step (restart the wait script)
-**If ENOUGH:** Update status to "done", proceed to `post_evaluation`
-
-<if mode="yolo">
-On TIMEOUT in yolo mode:
-- Auto-select ENOUGH (don't watch indefinitely without user)
-- Proceed to post_evaluation
-</if>
 </step>
 
 <step name="post_evaluation">
@@ -1412,7 +1440,7 @@ In interactive mode:
 - [ ] Status file updated for external monitoring
 - [ ] Review gate implemented with Y/N/ENOUGH/CONTINUE/WATCH options
 - [ ] CONTINUE option checks for new issues in ISSUES.md
-- [ ] WATCH mode blocks on issue-wait.sh, resumes when issue-signal.sh fires
+- [ ] WATCH/--daemon mode enters polling loop on ISSUES.md (no signal protocol needed)
 - [ ] Post-evaluation completed and improvements applied
 - [ ] Final summary shows completion status and open issues count
 - [ ] Worktree recovery instructions documented in objective
