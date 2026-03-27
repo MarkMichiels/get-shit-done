@@ -171,6 +171,17 @@ Run /gsd:new-project to start a new project.
 Exit.
 </step>
 
+<step name="health_check">
+**Pre-flight health check on .planning/ directory:**
+
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.cjs" validate health --repair 2>/dev/null || echo "HEALTH_SKIP"
+```
+
+If health issues found and auto-repaired, log them. If critical issues remain, warn but continue.
+This catches corrupted STATE.md, missing phase directories, stale frontmatter, etc. before they cause failures mid-build.
+</step>
+
 <step name="check_roadmap">
 **Check if roadmap exists:**
 
@@ -261,8 +272,18 @@ cat .planning/ROADMAP.md
 cat .planning/PROJECT.md 2>/dev/null
 cat .planning/REQUIREMENTS.md 2>/dev/null
 cat .planning/STATE.md 2>/dev/null
-ls .planning/codebase/*.md 2>/dev/null  # Existing codebase analysis
+CODEBASE_DOCS=$(ls .planning/codebase/*.md 2>/dev/null | wc -l)
+echo "CODEBASE_DOCS=$CODEBASE_DOCS"
 ```
+
+**If `CODEBASE_DOCS` is 0 and this is a brownfield project (existing code):**
+Run codebase mapping to give planners context:
+```
+Generating codebase analysis for planning context...
+```
+Invoke: `SlashCommand("/gsd:map-codebase")`
+
+This produces `.planning/codebase/STACK.md`, `ARCHITECTURE.md`, `TESTING.md`, etc. which planners and verifiers will use.
 
 Also scan the actual codebase to understand current state:
 ```bash
@@ -803,7 +824,26 @@ Show completion summary and exit (existing behavior).
 
    Write CONTEXT.md with all decisions captured.
 
-   **2b. Check if research needed:**
+   **2b. UI design contract (frontend phases — autonomous):**
+
+   Detect if this phase has frontend indicators:
+   ```bash
+   PHASE_SECTION=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.cjs" roadmap get-phase {X} 2>/dev/null)
+   echo "$PHASE_SECTION" | grep -iE "UI|interface|frontend|component|layout|page|screen|view|form|dashboard|widget" > /dev/null 2>&1
+   HAS_UI=$?
+   UI_SPEC_FILE=$(ls .planning/phases/{phase-dir}/*-UI-SPEC.md 2>/dev/null | head -1)
+   ```
+
+   **If `HAS_UI` is 0 (frontend detected) AND no UI-SPEC exists:**
+   ```
+   Phase {X}: Frontend phase detected — generating UI design contract...
+   /gsd:ui-phase {X}
+   ```
+   This produces a UI-SPEC.md that the planner will use as input. Fully autonomous.
+
+   **Otherwise:** Skip silently.
+
+   **2c. Check if research needed:**
 
    Research is needed when ANY of these are true:
    - `RESEARCH_ALWAYS=true` (from config.json `workflow.research=true`) AND no RESEARCH.md exists for this phase
@@ -846,6 +886,28 @@ Show completion summary and exit (existing behavior).
    ```
    Phase {X} -- Verification passed (quality: {QUALITY_SCORE}/10)
    ```
+
+   **Post-verification autonomous enhancements (only if passed):**
+
+   **a) UI Review (frontend phases only):**
+   ```bash
+   UI_SPEC_FILE=$(ls .planning/phases/{phase-dir}/*-UI-SPEC.md 2>/dev/null | head -1)
+   ```
+   If `UI_SPEC_FILE` exists:
+   ```
+   Phase {X}: Running UI review audit...
+   /gsd:ui-review {X}
+   ```
+   UI review is advisory — log score but don't block. Continue regardless.
+
+   **b) Test generation:**
+   ```
+   Phase {X}: Generating tests from phase artifacts...
+   /gsd:add-tests {X}
+   ```
+   Generates unit + E2E tests based on SUMMARY.md, CONTEXT.md, and VERIFICATION.md.
+   Tests are committed. Failures are logged as issues but don't block the next phase.
+
    Continue to next phase.
 
    **If `human_needed`:**
@@ -868,7 +930,21 @@ Show completion summary and exit (existing behavior).
    - "Continue without fixing" — defer gaps, proceed
    - "Stop" — go to handle_checkpoints
 
-   If gap closure attempted and gaps persist after retry, ask user to continue or stop.
+   If gap closure attempted and gaps persist after retry:
+
+   <if mode="yolo" or DAEMON_MODE="true">
+   Run forensics to diagnose the persistent failure:
+   ```
+   Phase {X}: Gaps persist after retry — running forensics...
+   /gsd:forensics
+   ```
+   Log the forensics report. File remaining gaps as issues in ISSUES.md.
+   Continue to next phase — daemon will revisit issues later.
+   </if>
+
+   <if mode="interactive" and DAEMON_MODE="false">
+   Ask user to continue or stop.
+   </if>
 
    **If empty (no VERIFICATION.md):**
    Log warning but continue — not all phases produce verification files.
@@ -1133,6 +1209,12 @@ LIFECYCLE
 All phases complete + merged -> Starting lifecycle: audit -> complete -> cleanup
 ```
 
+**0. Cross-phase UAT scan (before audit):**
+
+Invoke: `SlashCommand("/gsd:audit-uat")`
+
+Surfaces any outstanding UAT items, unresolved verification gaps, or skipped human-verification items across ALL phases. Results inform the milestone audit.
+
 **1. Audit:**
 
 Invoke: `SlashCommand("/gsd:audit-milestone")`
@@ -1170,14 +1252,48 @@ Verify archive produced:
 ls .planning/milestones/v*-ROADMAP.md 2>/dev/null
 ```
 
-**3. Cleanup:**
+**3. Milestone summary:**
+
+Invoke: `SlashCommand("/gsd:milestone-summary")`
+
+Generates a human-readable project summary document from milestone artifacts. Useful for team onboarding and project handoff.
+
+**4. Documentation & dead code cleanup:**
+
+Before archiving, verify documentation is current and no dead code remains:
+
+```bash
+# Find files modified in this milestone (from phase summaries)
+MODIFIED_FILES=$(grep -rh "key-files" .planning/phases/*/SUMMARY.md 2>/dev/null | grep -oE '`[^`]+`' | tr -d '`' | sort -u)
+```
+
+For each modified file:
+- Check if corresponding documentation (README, inline comments, docstrings) matches the current implementation
+- Check if any imports/functions were removed but their definitions remain elsewhere (dead code)
+- Check if any config references point to removed features
+
+```bash
+# Find potentially dead exports (defined but never imported)
+for file in $MODIFIED_FILES; do
+    [ -f "$file" ] || continue
+    # Extract exported names and check for imports elsewhere
+    grep -E "^export |^def |^class |^function " "$file" 2>/dev/null | head -20
+done
+```
+
+Update documentation and remove dead code. Commit:
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.cjs" commit "docs: update documentation and remove dead code after milestone completion" --files .
+```
+
+**5. Cleanup:**
 
 Invoke: `SlashCommand("/gsd:cleanup")`
 
 Cleanup shows its own dry-run and asks user for approval internally.
 
 ```
-Lifecycle complete: audit -> complete -> cleanup
+Lifecycle complete: audit-uat -> audit -> complete -> milestone-summary -> docs-cleanup -> cleanup
 ```
 </step>
 
@@ -1498,7 +1614,15 @@ In interactive mode:
 - [ ] User notified if open issues exist (not in roadmap)
 - [ ] Worktree branch merged to main after cycle complete
 - [ ] Worktree cleaned up after successful merge
-- [ ] Lifecycle executed: audit -> complete -> cleanup
+- [ ] Health check run at startup (.planning/ integrity)
+- [ ] Codebase mapped if brownfield project with no .planning/codebase/ docs
+- [ ] UI-SPEC generated for frontend phases (before planning)
+- [ ] UI review run for frontend phases (after verification)
+- [ ] Tests generated after each verified phase (add-tests)
+- [ ] Forensics run on persistent failures (daemon/yolo mode)
+- [ ] Cross-phase UAT audit run before lifecycle
+- [ ] Lifecycle executed: audit-uat -> audit -> complete -> milestone-summary -> docs-cleanup -> cleanup
+- [ ] Documentation updated and dead code removed before archiving
 - [ ] Status file updated for external monitoring
 - [ ] Review gate implemented with Y/N/ENOUGH/CONTINUE/WATCH options
 - [ ] CONTINUE option checks for new issues in ISSUES.md
