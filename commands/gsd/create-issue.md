@@ -265,7 +265,7 @@ Use AskUserQuestion:
 - header: "Next"
 - question: "Build-all is in watch mode. Signal it to pick up this issue?"
 - options:
-  - "Signal build-all" — Run `bash "$HOME/.claude/get-shit-done/scripts/issue-signal.sh" .planning`, then show "Build-all notified — it will pick up this issue automatically."
+  - "Signal build-all" — Run `bash "$HOME/.claude/get-shit-done/bin/gsd-signal.sh" .planning`, then show "Build-all notified — it will pick up this issue automatically."
   - "Create another issue first" — Run /gsd:create-issue again (collect more issues before signaling)
   - "Signal later" — Don't signal yet, back to work. User runs `issue-signal.sh` manually when ready.
   - "Create phase instead" — Run /gsd:add-phase or /gsd:insert-phase (bypass build-all, plan directly)

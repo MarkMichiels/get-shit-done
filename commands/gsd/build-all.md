@@ -1280,8 +1280,12 @@ To stop: type anything in this session.
 **2. Poll loop:**
 
 ```bash
-# Sleep 60s then count open issues — single command, single output
-bash "$HOME/.claude/get-shit-done/scripts/gsd-poll.sh" .planning 60
+GSD_BIN="$HOME/.claude/get-shit-done/bin"
+if [ -x "$GSD_BIN/gsd-poll.sh" ]; then
+  bash "$GSD_BIN/gsd-poll.sh" .planning 60
+else
+  sleep 60 && awk '/^## Open Enhancements/,0 { if (/^### ISS-[0-9]+:/) count++ } END { print count+0 }' .planning/ISSUES.md 2>/dev/null || echo 0
+fi
 ```
 
 Output is a single number: `0` (no issues) or `3` (3 open issues).
