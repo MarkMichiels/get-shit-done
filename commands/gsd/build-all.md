@@ -1112,42 +1112,33 @@ Output is a single number: `0` or `3`.
 Instead of just sleeping, use idle cycles for maintenance tasks. Run ONE task per idle cycle, then poll again.
 Track which tasks have been completed in this daemon session to avoid repeating them.
 
+**Idle housekeeping — run ONE task per idle cycle, log to status file:**
+
+Track completed tasks to avoid repeating. After each task, update status and poll again.
+
+**Priority order (run first uncompleted):**
+
+1. **Documentation review** — scan modified files, update stale docs/docstrings, remove references to deleted features. Commit: `docs: idle housekeeping — documentation review`
+
+2. **Dead code cleanup** — find exported functions never imported elsewhere, unused imports. Remove conservatively (zero references only). Commit: `refactor: idle housekeeping — dead code removal`
+
+3. **Code quality** — run project linter (`npm run lint --fix`, `ruff check --fix`), fix auto-fixable issues. Commit: `style: idle housekeeping — lint fixes`
+
+4. **Test health** — run existing tests, fix any that broke. If tests are missing for recent phases, generate via `/gsd:add-tests`. Commit: `test: idle housekeeping — test maintenance`
+
+**After each task, update status file with what was done:**
 ```bash
-# Check what housekeeping is needed
-HOUSEKEEPING_DONE=${HOUSEKEEPING_DONE:-""}
+# Read current status, add housekeeping entry
+python3 -c "
+import json
+with open('.planning/.build-all-status.json') as f: s = json.load(f)
+s.setdefault('housekeeping', []).append({'task': 'TASK_NAME', 'at': 'TIMESTAMP', 'commit': 'HASH'})
+s['timestamp'] = 'TIMESTAMP'
+with open('.planning/.build-all-status.json', 'w') as f: json.dump(s, f, indent=2)
+"
 ```
 
-**Priority order (run first uncompleted task, then sleep + poll):**
-
-1. **Documentation review** (if not yet done this session):
-   - Scan all files modified in the last milestone
-   - Check READMEs, docstrings, inline comments match current code
-   - Update stale documentation, remove references to deleted features
-   - Commit changes: `docs: update documentation during idle housekeeping`
-   - Mark: `HOUSEKEEPING_DONE="$HOUSEKEEPING_DONE|docs"`
-
-2. **Dead code cleanup** (if not yet done):
-   - Find exported functions/classes that are never imported elsewhere
-   - Find unused imports
-   - Remove confirmed dead code (conservative — only remove if zero references)
-   - Commit: `refactor: remove dead code during idle housekeeping`
-   - Mark: `HOUSEKEEPING_DONE="$HOUSEKEEPING_DONE|deadcode"`
-
-3. **Code quality pass** (if not yet done):
-   - Run linter if available (`npm run lint`, `ruff check`, etc.)
-   - Fix auto-fixable issues
-   - Commit: `style: fix lint issues during idle housekeeping`
-   - Mark: `HOUSEKEEPING_DONE="$HOUSEKEEPING_DONE|lint"`
-
-4. **Test coverage review** (if not yet done):
-   - Check if existing tests still pass
-   - Identify untested functions in recently modified files
-   - Generate missing tests via `/gsd:add-tests` for the most recent completed phase
-   - Mark: `HOUSEKEEPING_DONE="$HOUSEKEEPING_DONE|tests"`
-
-**After housekeeping task (or if all done):**
-- Sleep 60 seconds: `sleep 60`
-- Return to poll loop
+**After task (or if all 4 done):** sleep 60, return to poll loop.
 
 **3. Exit conditions:**
 
