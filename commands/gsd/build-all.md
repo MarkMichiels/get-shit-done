@@ -92,8 +92,8 @@ If `DAEMON_MODE=true`, check immediately if the project is already complete:
 if [ "$DAEMON_MODE" = "true" ] && [ -f .planning/ROADMAP.md ]; then
     TOTAL=$(grep -cE '^\s*- \[' .planning/ROADMAP.md 2>/dev/null || echo "0")
     DONE=$(grep -cE '^\s*- \[x\]' .planning/ROADMAP.md 2>/dev/null || echo "0")
-    BUGS=$(awk '/^## Open Bugs/,/^## / { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null || echo "0")
-    ENH=$(awk '/^## Open Enhancements/,/^## / { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null || echo "0")
+    BUGS=$(awk '/^## Open Bugs/,/^## (Open Enhancements|Resolved)/ { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null || echo "0")
+    ENH=$(awk '/^## Open Enhancements/,/^## Resolved/ { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null || echo "0")
     OPEN=$((BUGS + ENH))
     echo "DAEMON_CHECK|phases=$DONE/$TOTAL|issues=$OPEN"
 fi
@@ -803,8 +803,8 @@ Wait for confirmation.
 ```bash
 # Count open bugs AND enhancements (exclude resolved ~~ISS~~ entries)
 if [ -f .planning/ISSUES.md ]; then
-  BUGS=$(awk '/^## Open Bugs/,/^## / { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md)
-  ENH=$(awk '/^## Open Enhancements/,/^## / { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md)
+  BUGS=$(awk '/^## Open Bugs/,/^## (Open Enhancements|Resolved)/ { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md)
+  ENH=$(awk '/^## Open Enhancements/,/^## Resolved/ { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md)
   echo "$((BUGS + ENH))"
 else
   echo "0"
@@ -1165,8 +1165,8 @@ This command returns exactly one of two strings:
 When the wait returns (either trigger), read ISSUES.md and count open issues:
 
 ```bash
-BUGS=$(awk '/^## Open Bugs/,/^## / { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null)
-ENH=$(awk '/^## Open Enhancements/,/^## / { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null)
+BUGS=$(awk '/^## Open Bugs/,/^## (Open Enhancements|Resolved)/ { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null)
+ENH=$(awk '/^## Open Enhancements/,/^## Resolved/ { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null)
 echo "OPEN_BUGS=$BUGS OPEN_ENH=$ENH TOTAL=$((BUGS + ENH))"
 ```
 
