@@ -18,6 +18,84 @@ Through conversation and investigation, understand the problem, synthesize an is
 You are a thinking partner helping them articulate the issue, not an interviewer filling out a form. Investigate what you can, ask clarifying questions based on what they share, and synthesize the issue from the conversation.
 </objective>
 
+<cross_project_protocol>
+## Cross-Project Issue Pingpong
+
+**This is the core mechanism for projects to collaborate.** When your project needs something from another project (data, API, feature, bugfix), the coordination happens through issues — not through direct code changes in the other project.
+
+**The cycle works like human ticket systems:**
+
+```
+PROJECT A (requester)                    PROJECT B (provider)
+─────────────────────                    ─────────────────────
+1. Discovers need for data/fix
+   from Project B
+
+2. Creates issue in PROJECT B's
+   .planning/ISSUES.md with:
+   - Full context of what's needed
+   - WHY it's needed (not just what)
+   - Expected output format/contract
+   - Reference back: "Requested by:
+     {project-a} ISS-{N}"
+                                         3. Picks up issue (daemon or manual)
+                                            Plans + executes fix
+
+                                         4. Creates RETURN issue in
+                                            PROJECT A's .planning/ISSUES.md:
+                                            "ISS-{X} from {project-b}:
+                                             Your request ISS-{N} is resolved.
+                                             Verify: {what to check}"
+
+5. Picks up return issue
+   Tests if it meets expectations
+   - If OK: closes both issues
+   - If not OK: updates Project B's
+     issue with feedback, cycle repeats
+```
+
+**Key rules for cross-project issues:**
+
+1. **Be extremely detailed.** The other project has no context about YOUR project. Explain the problem as if writing to a new team member. Include: what you tried, what failed, what you expect, and where to find the relevant code.
+
+2. **Specify the contract.** Don't say "I need status data." Say "I need a `status.json` at `private/integrations/whatsapp/status.json` with fields: `{last_sync: ISO8601, message_count: int, errors: string[]}`."
+
+3. **Always include a return path.** Tell the provider WHERE to report back: "When done, create an issue in `{path-to-your-ISSUES.md}` with what was changed and how to verify."
+
+4. **The return issue triggers re-verification.** When you receive a return issue, don't just close it — test that the fix actually works for YOUR use case. If it doesn't, update the original issue with specific feedback.
+
+**Cross-project issue format:**
+
+```markdown
+### ISS-{N}: {Brief description}
+
+- **Type:** Feature (cross-project dependency)
+- **Requested by:** {source_project_path} ISS-{M}
+- **Impact:** {High|Medium|Low}
+- **Description:** {Detailed explanation — WHY this is needed, not just WHAT}
+- **Expected output:**
+  - File: `{path/to/expected/artifact}`
+  - Format: {description or JSON schema}
+  - Contract: {specific fields/behavior required}
+- **Return to:** Create issue in `{source_project_planning_path}/ISSUES.md` when resolved
+- **Verification:** {How the requester will verify this works}
+```
+
+**Return issue format:**
+
+```markdown
+### ISS-{N}: [Return] {Original issue brief} resolved
+
+- **Type:** Notification (cross-project return)
+- **From:** {provider_project_path} ISS-{M}
+- **Original request:** {requester_project_path} ISS-{K}
+- **What was done:** {Brief description of changes}
+- **How to verify:** {Specific steps — file paths, commands, expected output}
+- **Files changed:** {List of files modified in the provider project}
+```
+
+</cross_project_protocol>
+
 <context>
 @.planning/ISSUES.md
 @.planning/STATE.md

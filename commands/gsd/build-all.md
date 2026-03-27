@@ -1287,11 +1287,36 @@ echo "POLL|$OPEN_ISSUES|$(date -Iseconds)"
 
 **If `OPEN_ISSUES > 0`:**
 - Read ISSUES.md to analyze issues
-- Follow existing issue resolution logic from build_loop step 5a:
+- **Classify each issue:**
+
+  **Regular issues** (Type: Bug/Feature/etc.):
+  - Follow existing issue resolution logic from build_loop step 5a
   - Group issues, determine strategy (hotfix milestone vs add phase)
-  - Create phase/milestone
-  - Plan + execute
-  - Verify
+  - Create phase/milestone, plan + execute, verify
+
+  **Cross-project return issues** (Type: Notification, contains "cross-project return"):
+  - These are responses from another project saying "your request is done"
+  - Read the "How to verify" field
+  - Run the verification steps (check file exists, test behavior, etc.)
+  - If verification passes: mark both the return issue AND the original request as resolved
+  - If verification fails: create a follow-up issue in the provider project's ISSUES.md
+    with specific feedback on what doesn't work, referencing the original issue chain
+
+  **Cross-project dependency issues** (contains "Requested by:" from another project):
+  - These are requests FROM another project asking THIS project to do something
+  - Plan + execute the requested work normally
+  - **After completion: create a RETURN issue** in the requester's .planning/ISSUES.md:
+    ```markdown
+    ### ISS-{N}: [Return] {Original issue brief} resolved
+
+    - **Type:** Notification (cross-project return)
+    - **From:** {this_project_path} ISS-{M}
+    - **Original request:** {requester_path} ISS-{K}
+    - **What was done:** {Brief description}
+    - **How to verify:** {Specific steps}
+    ```
+  - Commit the return issue in the requester's ISSUES.md
+
 - After resolving, update status timestamp and **return to poll loop**
 
 **If `OPEN_ISSUES = 0`:**
