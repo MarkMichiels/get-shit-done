@@ -1,6 +1,6 @@
 ---
 name: gsd:build-all
-description: Build entire project automatically (plan → execute each phase sequentially) with daemon mode for continuous issue resolution
+description: Build entire project automatically (plan → execute each phase sequentially), then daemon loop for issue resolution + repo improvement
 allowed-tools:
   - Read
   - Bash
@@ -34,21 +34,12 @@ This respects the iterative planning principle:
 
 **All work happens on the current branch.** No worktree isolation — simpler, fewer failure modes.
 
-**Interactive mode (default):**
-- Workflow continues until user explicitly says "it's done" or "enough"
-- Status is tracked in `.planning/.build-all-status.json` for external monitoring
-- Review gate after each cycle for user feedback
-- Post-evaluation to improve the command itself
-- External process can optionally monitor status file for coordination
-
-**Daemon mode (`--daemon`):**
-- After building all phases, enters autonomous polling loop
-- Polls `.planning/ISSUES.md` every 60 seconds for new issues
-- Automatically plans + executes any new issues found
-- No review gate, no user interaction required
-- Runs indefinitely until session is closed or user intervenes
-- Other sessions (debug, create-issue) just write to ISSUES.md — daemon picks it up
-- Can be started on already-completed projects (skips to polling immediately)
+**Always-on daemon:** After all phases complete and lifecycle runs, automatically enters
+autonomous polling loop watching `.planning/ISSUES.md` for new work. Other sessions
+(debug, create-issue) write issues; this session picks them up and resolves them.
+During idle time, improves the repository (docs, lint, tests, dead code cleanup).
+Status is tracked in `.planning/.build-all-status.json` for external monitoring.
+Can be started on already-completed projects (skips to polling immediately).
 
 ## Parallel Projects
 
@@ -74,49 +65,34 @@ Multiple GSD projects in the same repo can run build-all simultaneously — each
 <process>
 
 <step name="parse_flags" priority="first">
-**Parse arguments — THIS STEP RUNS FIRST, BEFORE ANYTHING ELSE:**
+**Fast-path for completed projects — THIS STEP RUNS FIRST, BEFORE ANYTHING ELSE:**
 
-- `--daemon` → Set `DAEMON_MODE=true`. Skips review gate, enters autonomous issue loop after build.
-- No flag → `DAEMON_MODE=false`. Normal interactive build with review gate.
-
-```bash
-DAEMON_MODE=false
-[[ "$ARGUMENTS" =~ --daemon ]] && DAEMON_MODE=true
-```
-
-**CRITICAL — Daemon fast-path for completed projects:**
-
-If `DAEMON_MODE=true`, check immediately if the project is already complete:
+Check immediately if the project is already complete:
 
 ```bash
-if [ "$DAEMON_MODE" = "true" ] && [ -f .planning/ROADMAP.md ]; then
+if [ -f .planning/ROADMAP.md ]; then
     TOTAL=$(grep -cE '^\s*- \[' .planning/ROADMAP.md 2>/dev/null || echo "0")
     DONE=$(grep -cE '^\s*- \[x\]' .planning/ROADMAP.md 2>/dev/null || echo "0")
     BUGS=$(awk '/^## Open Bugs/,/^## (Open Enhancements|Resolved)/ { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null || echo "0")
     ENH=$(awk '/^## Open Enhancements/,/^## Resolved/ { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null || echo "0")
     OPEN=$((BUGS + ENH))
-    echo "DAEMON_CHECK|phases=$DONE/$TOTAL|issues=$OPEN"
+    echo "FAST_PATH_CHECK|phases=$DONE/$TOTAL|issues=$OPEN"
 fi
 ```
 
-**If `DAEMON_MODE=true` AND all phases complete (`DONE == TOTAL`) AND `OPEN == 0`:**
+**If all phases complete (`DONE == TOTAL`) AND `OPEN == 0`:**
 
-**STOP HERE. Do NOT continue to verify, check_roadmap, load_roadmap, critical_evaluation, or any other step.**
-
-**Go DIRECTLY to `daemon_loop` step.** Show:
+**STOP HERE.** Go DIRECTLY to `daemon_loop` step. Show:
 
 ```
-Daemon mode — all {TOTAL} phases complete, 0 open issues.
-Entering polling loop on .planning/ISSUES.md...
+All {TOTAL} phases complete, 0 open issues.
+Entering daemon loop on .planning/ISSUES.md...
 ```
 
-**This override is absolute.** The user explicitly asked for daemon mode. Do not suggest alternatives, do not show completion summaries, do not offer /gsd:new-milestone. Enter the daemon loop and start polling.
+Do not suggest alternatives, do not show completion summaries, do not offer /gsd:new-milestone.
 
-**If `DAEMON_MODE=true` AND phases remaining OR issues open:**
-Continue to normal flow (verify → load_roadmap → build_loop). After build completes, daemon_loop will be entered instead of review_gate.
-
-**If `DAEMON_MODE=false`:**
-Continue to verify step (normal flow).
+**If phases remaining OR issues open:**
+Continue to normal flow (verify → load_roadmap → build_loop). After build completes, daemon_loop is entered automatically.
 </step>
 
 <step name="discover_project">
@@ -217,6 +193,13 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.cjs" validate health --repair 2>
 
 If health issues found and auto-repaired, log them. If critical issues remain, warn but continue.
 This catches corrupted STATE.md, missing phase directories, stale frontmatter, etc. before they cause failures mid-build.
+
+**Clean up stale worktree tracking files** (no longer used — all work on current branch):
+```bash
+for f in .build-all-worktree.json .build-all-current-branch .build-all-original-branch; do
+    [ -f ".planning/$f" ] && rm ".planning/$f" && echo "CLEANED: .planning/$f (stale)"
+done
+```
 </step>
 
 <step name="check_roadmap">
@@ -539,40 +522,15 @@ Continue to build_loop step.
 <step name="build_loop">
 **Build all phases sequentially (with issue resolution loop):**
 
-<if mode="yolo">
 ```
 Building Entire Project
 
-This will plan and execute each phase sequentially.
-Each phase planning uses context from previous phase summaries.
-Open issues will be automatically addressed after roadmap phases complete.
+Plan → execute each phase sequentially.
+After completion: lifecycle → daemon loop (issue polling + repo improvement).
 
 All work on current branch (main).
-Loop mode: After completion, waits for review and checks for new issues
-
 Starting build pipeline...
 ```
-</if>
-
-<if mode="interactive">
-```
-Building Entire Project
-
-This will plan and execute each phase sequentially.
-You'll be prompted at:
-- Each phase planning start
-- Blocking checkpoints during execution
-- Errors or failures
-- Open issues resolution (after roadmap phases complete)
-- Merge confirmation (if conflicts occur)
-
-All work on current branch (main).
-Loop mode: After completion, waits for review and checks for new issues
-
-Proceed with full build?
-```
-Wait for confirmation.
-</if>
 
 **Main build loop (continues until no phases or issues remain):**
 
@@ -731,17 +689,8 @@ Wait for confirmation.
    Continue to next phase.
 
    **If `human_needed`:**
-
-   <if DAEMON_MODE="true">
-   Log human verification items but continue — daemon can't wait for human input.
+   Log human verification items but continue — can't wait for human input.
    File items as issues in ISSUES.md for manual follow-up.
-   </if>
-
-   <if DAEMON_MODE="false">
-   Read human_verification section from VERIFICATION.md. Present items to user:
-   - "Validate now" — present specific items, ask for result
-   - "Continue without validation" — defer validation, proceed
-   </if>
 
    **If `gaps_found`:**
    Read gap summary (score, quality scores, and missing items). Display:
@@ -759,8 +708,6 @@ Wait for confirmation.
    - "Stop" — go to handle_checkpoints
 
    If gap closure attempted and gaps persist after retry:
-
-   <if mode="yolo" or DAEMON_MODE="true">
    Run forensics to diagnose the persistent failure:
    ```
    Phase {X}: Gaps persist after retry — running forensics...
@@ -768,11 +715,6 @@ Wait for confirmation.
    ```
    Log the forensics report. File remaining gaps as issues in ISSUES.md.
    Continue to next phase — daemon will revisit issues later.
-   </if>
-
-   <if mode="interactive" and DAEMON_MODE="false">
-   Ask user to continue or stop.
-   </if>
 
    **If empty (no VERIFICATION.md):**
    Log warning but continue — not all phases produce verification files.
@@ -970,28 +912,10 @@ Audit passed — proceeding to complete milestone
 ```
 
 **If `gaps_found`:**
-
-<if DAEMON_MODE="true">
-Log gaps but continue — file as issues for next cycle.
-</if>
-
-<if DAEMON_MODE="false">
-Read the gaps summary. Ask user:
-- "Continue anyway — accept gaps" -> proceed
-- "Stop — fix gaps manually" -> pause
-</if>
+Log gaps but continue — file as issues for daemon to pick up in next cycle.
 
 **If `tech_debt`:**
-
-<if DAEMON_MODE="true">
-Log tech debt but continue.
-</if>
-
-<if DAEMON_MODE="false">
-Read the tech debt summary. Ask user:
-- "Continue with tech debt" -> proceed
-- "Stop — address debt first" -> pause
-</if>
+Log tech debt but continue — daemon housekeeping will address it.
 
 **If audit file missing or no status:**
 Log warning but continue — audit may not be configured for all projects.
@@ -1047,77 +971,16 @@ Cleanup shows its own dry-run and asks user for approval internally.
 
 ```
 Lifecycle complete: audit-uat -> audit -> complete -> milestone-summary -> docs-cleanup -> cleanup
-```
-</step>
-
-<step name="review_gate">
-**If `DAEMON_MODE=true`:** Skip review gate entirely. Go directly to `daemon_loop` step.
-
-**Review gate: Pause for user review (Y/N/ENOUGH/CONTINUE to proceed):**
-
-At this point, the build cycle should be complete:
-- All phases planned and executed
-- Lifecycle completed (audit, complete, cleanup)
-- Status file updated
-
-**Action:** Show summary and ask user to review:
-
-```
-## Build All Complete - Review
-
-**Status:** All phases complete
-
-**Summary:**
-- Planned and executed {N} phases
-- All summaries created
-- All commits made
-- All open issues addressed (if applicable)
-- Lifecycle: audit -> complete -> cleanup
-- Status file updated: .planning/.build-all-status.json
-
-**Files ready:**
-- All phase summaries in .planning/phases/
-- All code changes committed and merged to main
-
-Please review and respond:
-- **Y** = proceed to post-evaluation
-- **N** = collect corrections, apply fixes, then repeat review
-- **ENOUGH** = stop building, mark status as "done", workflow complete
-- **CONTINUE** = check for new issues in ISSUES.md, restart cycle if found
-- **WATCH** = enter watch mode — wait for external process to signal new issues
+Entering daemon loop...
 ```
 
-**After user response:**
-
-**If Y (proceed to post-evaluation):**
-- Proceed to `post_evaluation` step
-- Update status: `"status": "reviewing"`
-
-**If N (collect corrections):**
-- Apply fixes based on feedback
-- Repeat `review_gate` after fixes applied
-
-**If ENOUGH (stop building):**
-- Update status file: `"status": "done"`
-- Show final summary
-- **Do NOT continue** - user wants to stop
-- End workflow
-
-**If CONTINUE (check for new issues):**
-- Re-read ISSUES.md and count open issues
-- If new issues found, return to `build_loop` step (process new issues)
-- If no new issues, proceed to `post_evaluation`
-
-**If WATCH (enter daemon mode):**
-- Proceed to `daemon_loop` step
+Proceed directly to `daemon_loop` step.
 </step>
 
 <step name="daemon_loop">
-**Daemon Mode: Autonomous issue polling loop**
+**Daemon Loop: Autonomous issue polling + repository improvement**
 
-Entered when `DAEMON_MODE=true` (via `--daemon` flag) or when user selects WATCH from review gate.
-Can also be entered in a session where all phases are already complete — build-all detects this
-and skips straight to the loop.
+Entered automatically after lifecycle completes, or via fast-path when all phases are already done.
 
 **How it works:** Uses `inotifywait` to block until ISSUES.md is modified, then reads and acts.
 Falls back to 30-minute timeout for resilience. No polling, no background processes, no parallel sleeps.
@@ -1264,7 +1127,6 @@ At the end of the run, do a quick retrospective to make the next run faster and 
 - What was unexpectedly tricky / slow
 - User feedback received (if any)
 - External process coordination (if applicable)
-- Worktree workflow: any issues with symlinks, merge, cleanup?
 
 **Then propose concrete command improvements:**
 - Which steps were unclear?
@@ -1342,9 +1204,9 @@ In interactive mode:
 - [ ] Lifecycle executed: audit-uat -> audit -> complete -> milestone-summary -> docs-cleanup -> cleanup
 - [ ] Documentation updated and dead code removed before archiving
 - [ ] Status file updated for external monitoring
-- [ ] Review gate implemented with Y/N/ENOUGH/CONTINUE/WATCH options
-- [ ] CONTINUE option checks for new issues in ISSUES.md
-- [ ] WATCH/--daemon mode enters polling loop on ISSUES.md (no signal protocol needed)
+- [ ] Stale worktree tracking files cleaned up during health check
+- [ ] Daemon loop entered automatically after lifecycle (no review gate)
+- [ ] Daemon polls ISSUES.md via inotifywait (no signal protocol needed)
 - [ ] Post-evaluation completed and improvements applied
 - [ ] Final summary shows completion status and open issues count
 </success_criteria>
