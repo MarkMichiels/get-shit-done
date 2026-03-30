@@ -195,7 +195,7 @@ function safeReadFile(filePath) {
 }
 
 function loadConfig(cwd) {
-  const configPath = path.join(cwd, '.planning', 'config.json');
+  const configPath = path.join(planningDir(cwd), 'config.json');
   const defaults = {
     model_profile: 'balanced',
     commit_docs: true,
@@ -540,20 +540,34 @@ function withPlanningLock(cwd, fn) {
 }
 
 /**
- * Get the .planning directory path, workstream-aware.
- * When a workstream is active (via explicit ws arg or GSD_WORKSTREAM env var),
- * returns `.planning/workstreams/{ws}/`. Otherwise returns `.planning/`.
+ * Get the .planning directory path, project- and workstream-aware.
+ *
+ * Resolution order:
+ * 1. If GSD_PROJECT is set (env var or explicit `project` arg), routes to
+ *    `.planning/{project}/` — supports multi-project workspaces where several
+ *    independent projects share a single `.planning/` root directory (e.g.,
+ *    an Obsidian vault or monorepo knowledge base used as a command center).
+ * 2. If GSD_WORKSTREAM is set, routes to `.planning/workstreams/{ws}/`.
+ * 3. Otherwise returns `.planning/`.
+ *
+ * GSD_PROJECT and GSD_WORKSTREAM can be combined:
+ *   `.planning/{project}/workstreams/{ws}/`
  *
  * @param {string} cwd - project root
  * @param {string} [ws] - explicit workstream name; if omitted, checks GSD_WORKSTREAM env var
+ * @param {string} [project] - explicit project name; if omitted, checks GSD_PROJECT env var
  */
-function planningDir(cwd, ws) {
+function planningDir(cwd, ws, project) {
+  if (project === undefined) project = process.env.GSD_PROJECT || null;
   if (ws === undefined) ws = process.env.GSD_WORKSTREAM || null;
-  if (!ws) return path.join(cwd, '.planning');
-  return path.join(cwd, '.planning', 'workstreams', ws);
+
+  let base = path.join(cwd, '.planning');
+  if (project) base = path.join(base, project);
+  if (ws) base = path.join(base, 'workstreams', ws);
+  return base;
 }
 
-/** Always returns the root .planning/ path, ignoring workstreams. For shared resources. */
+/** Always returns the root .planning/ path, ignoring workstreams and projects. For shared resources. */
 function planningRoot(cwd) {
   return path.join(cwd, '.planning');
 }
