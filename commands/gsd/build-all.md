@@ -151,25 +151,44 @@ Projects:
   ...
 ```
 
-**After selecting the project, load sibling project context:**
+**After selecting the project, load sibling project context from BRIEF.md:**
 
-Other GSD projects in the same repo are potential cross-project collaborators. Read their
-PROJECT.md first line (project name) and count their open issues. This gives you awareness
-of the ecosystem without loading full context.
+Read `.planning/BRIEF.md` if it exists — this file contains the project identity and sibling
+GSD project list with their ISSUES.md paths. Created by the fleet launcher or by this step.
 
 ```bash
-# For each OTHER project found (not the selected one):
-for PROJECT in $ALL_PROJECTS; do
-    [ "$PROJECT" = "$SELECTED" ] && continue
-    NAME=$(head -1 "$PROJECT/.planning/PROJECT.md" 2>/dev/null | sed 's/^# //')
-    ISSUES=0
-    [ -f "$PROJECT/.planning/ISSUES.md" ] && \
-        ISSUES=$(awk '/^## Open (Bugs|Enhancements)/,/^## / { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' "$PROJECT/.planning/ISSUES.md")
-    echo "  Sibling: $NAME ($PROJECT) — $ISSUES open issues"
-done
+if [ -f .planning/BRIEF.md ]; then
+    cat .planning/BRIEF.md
+else
+    echo "No BRIEF.md found — generating..."
+fi
 ```
 
-Remember these sibling paths — when creating cross-project issues, you know where to write them.
+**If `.planning/BRIEF.md` does NOT exist, generate it:**
+
+1. Read project name from first line of `.planning/PROJECT.md` (strip `# ` prefix)
+2. Read first non-header, non-frontmatter line as description (max 150 chars)
+3. Scan the workspace for sibling GSD projects (same logic as discover_project)
+4. Write `.planning/BRIEF.md` with:
+
+```markdown
+# {Project Name}
+
+{Description}
+
+**Project dir:** `{absolute_path}`
+**ISSUES.md:** `{absolute_path}/.planning/ISSUES.md`
+
+## Sibling GSD Projects
+
+- **{sibling-short-name}** — {Sibling Name} — `{sibling}/.planning/ISSUES.md`
+- ...
+```
+
+5. Commit: `docs: generate BRIEF.md for fleet context`
+
+This ensures every project has a BRIEF.md for cross-project awareness, whether launched
+from the fleet or standalone. Use sibling ISSUES.md paths when filing cross-project issues.
 </step>
 
 <step name="verify">
