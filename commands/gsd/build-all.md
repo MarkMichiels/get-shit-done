@@ -298,6 +298,88 @@ Parse mode (yolo/interactive) and gates.
 **Store research config:** Check if `workflow.research` is `true` in config.json. If true, set `RESEARCH_ALWAYS=true`. This flag is used in the build_loop to ensure research is always checked.
 </step>
 
+<step name="standards_discovery">
+**Discover repo-wide coding standards BEFORE scaffolding begins.**
+
+**Why this step exists:** Subagents spawned by build-all read the subproject's CLAUDE.md — which is auto-generated and unaware of parent-repo coding rules (e.g. proviron `.cursor/rules/`, mark-private `PIPELINE_PRINCIPLES.md`). Without this step, planners and executors silently re-violate rules the repo already committed to. This is exactly how gmail_agent shipped 13 hardcoded paths + CLI duplication on 2026-04-21 — the rules existed but nobody looked them up before planning.
+
+One RAG call here prevents hours of refactor work later.
+
+**Step 1 — RAG discovery (non-negotiable):**
+
+```bash
+# Find coding standards documents in this repo and its symlinked parents.
+# Uses whichever RAG CLI is available on this machine.
+RAG_CLI=$(command -v rag_cli.py 2>/dev/null || \
+          ls /home/*/Repositories/*/tools/integrations/gemini/rag_cli.py 2>/dev/null | head -1)
+
+if [ -n "$RAG_CLI" ]; then
+    python "$RAG_CLI" query "What are the repo-wide coding standards and conventions that apply to this project? Specifically: are there rules about YAML config vs hardcoded paths, CLI duplication, module reuse patterns, naming conventions, directory structure for integrations? Which rule files (*.mdc, CLAUDE.md, PRINCIPLES.md, best practices docs) should I read before scaffolding? Give exact file paths."
+else
+    echo "⚠ RAG CLI not found — falling back to filesystem search"
+fi
+```
+
+**Step 2 — Filesystem fallback:** Regardless of RAG result, list rule files in ancestor directories (parent repos, symlinked repos):
+
+```bash
+# Scan up to 3 levels up + any repo in /home/*/Repositories/ for standards
+find .. ../.. ../../.. -maxdepth 4 \
+    \( -name "*.mdc" -o -name "PIPELINE_PRINCIPLES.md" -o -name "naming_conventions.md" \
+       -o -name "general_coding*.md*" -o -name "python.md*" \) \
+    2>/dev/null | grep -v "node_modules\|.planning\|worktrees" | sort -u | head -20
+
+# Also: CLAUDE.md files in ancestor directories — these often point at more rules
+find .. ../.. ../../.. -maxdepth 4 -name "CLAUDE.md" 2>/dev/null | \
+    grep -v "node_modules\|worktrees\|.planning" | head -10
+```
+
+**Step 3 — Parse and surface the 3 most-violated rules.**
+
+Read the discovered rule files (or their table-of-contents sections). Look specifically for:
+
+- **Duplication / reuse rules** — "NEVER duplicate", "check tools/ first", "reuse existing wrappers"
+- **Config externalization rules** — "config.yaml per pipeline", "no hardcoded paths", "env vars" patterns
+- **Naming / structure rules** — snake_case files, language (English-only except private/), directory conventions
+
+Present findings to user before critical_evaluation:
+
+```markdown
+## Standards Discovery
+
+Found these authoritative rule files for this repo:
+
+| File | Key Rules |
+|------|-----------|
+| `path/to/general_coding.mdc` | NEVER Duplicate (reuse tools/), tool discovery MANDATORY |
+| `path/to/PIPELINE_PRINCIPLES.md` | config.yaml per pipeline (never hardcoded), models in YAML |
+| `path/to/python.md` | @dataclass AppConfig.from_yaml() / from_env() loaders |
+
+These will be passed to every planner + executor via their `<files_to_read>` blocks.
+```
+
+**Step 4 — Propagate to subagent prompts.**
+
+Set `STANDARDS_FILES` variable listing absolute paths to rule files. All subagent invocations in subsequent steps (planner, executor, verifier, etc.) MUST include `STANDARDS_FILES` in their `<files_to_read>` block, prefixed with "Read these rule files FIRST. Comply with them — summarize the 3 most-relevant rules before touching code."
+
+**Step 5 — Warn on zero findings.**
+
+If both RAG and filesystem return nothing:
+```
+⚠ No repo-wide coding standards found.
+Either (a) this is a truly standalone project, or (b) standards exist but are
+unindexed. Proceeding without cascade — subagents will only have local CLAUDE.md.
+
+To improve future runs: add rule files under parent `.cursor/rules/` or commit a
+`CODING_STANDARDS.md` at workspace root, then rebuild RAG index.
+```
+
+**Anti-pattern warning:** Do NOT let subagents claim "rules will be followed" without evidence they READ the files. Planner/executor should paraphrase 2-3 rules back in their prompt responses as proof-of-read.
+
+**Auto mode:** Runs silently. Log discovered rule files to STATE.md under a `## Standards Cascade` section for auditability. No user gate.
+
+</step>
+
 <step name="critical_evaluation">
 **Critical evaluation: Is this roadmap ready to build?**
 
