@@ -286,6 +286,122 @@ Update ROADMAP.md with phases manually, or delete .planning/ and run /gsd:new-pr
 Exit.
 </step>
 
+<step name="phase_ordering">
+**Build dependency-aware execution order (topo-sort on phase deps):**
+
+After loading the roadmap, parse each phase's `**Depends on**:` line and build a DAG.
+Execute phases in topological order. Numeric phase-ID is the tiebreaker, not the law.
+
+**Why this exists:** Phase numbers reflect roadmap authoring order. A later-numbered
+phase may be a prerequisite for an earlier one — e.g., an entity-resolution phase
+added AFTER a person-dossier phase discovered its own broken data foundation. Without
+topo-sort, build-all burns tokens on stale inputs and produces gaps that retry cannot
+close.
+
+**Step 1 — Parse phase deps + status from ROADMAP.md:**
+
+```bash
+ORDER_JSON=$(python3 - <<'EOF'
+import re, json, pathlib, sys
+from collections import defaultdict, deque
+
+roadmap = pathlib.Path('.planning/ROADMAP.md').read_text()
+phases = {}  # phase_id -> {deps, status, line}
+
+# Parse each "### Phase N:" header + its body until next "### " or end
+for m in re.finditer(r'^### Phase ([\d.]+):(.*?)(?=^### |\Z)', roadmap, re.M | re.S):
+    pid, body = m.group(1), m.group(2)
+    # Depends on: explicit phase refs like "Phase 12" or "Phase 12, Phase 5"
+    deps = []
+    dm = re.search(r'\*\*Depends on\*\*:\s*([^\n]+)', body)
+    if dm:
+        deps = re.findall(r'Phase (\d+(?:\.\d+)?)', dm.group(1))
+    # Status (optional, defaults to 'ready')
+    sm = re.search(r'\*\*Status\*\*:\s*(\w+)', body, re.I)
+    status = sm.group(1).lower() if sm else 'ready'
+    # Completion marker in checklist
+    complete = bool(re.search(r'^- \[x\] \*\*Phase ' + re.escape(pid) + r':', roadmap, re.M))
+    phases[pid] = {'deps': deps, 'status': status, 'complete': complete}
+
+# Topo sort (Kahn)
+indeg = {p: 0 for p in phases}
+graph = defaultdict(list)
+for p, info in phases.items():
+    for d in info['deps']:
+        if d in phases:
+            graph[d].append(p)
+            indeg[p] += 1
+
+# Tiebreak by numeric asc
+def numkey(p):
+    return tuple(int(x) for x in p.split('.'))
+
+q = deque(sorted([p for p, d in indeg.items() if d == 0], key=numkey))
+order = []
+while q:
+    p = q.popleft()
+    order.append(p)
+    for nxt in sorted(graph[p], key=numkey):
+        indeg[nxt] -= 1
+        if indeg[nxt] == 0:
+            q.append(nxt)
+
+# Cycle detection
+if len(order) != len(phases):
+    print(json.dumps({'error': 'cycle_detected', 'resolved': order, 'remaining': [p for p in phases if p not in order]}))
+    sys.exit(1)
+
+# Filter: keep only phases that need work (not complete, status allows execution)
+actionable = []
+for p in order:
+    info = phases[p]
+    if info['complete']:
+        continue
+    if info['status'] in ('paused', 'blocked'):
+        continue
+    actionable.append(p)
+
+print(json.dumps({'order': order, 'actionable': actionable, 'phases': phases}))
+EOF
+)
+echo "$ORDER_JSON" > .planning/.build-all-order.json
+```
+
+**Step 2 — Handle cycle detection:**
+
+If `ORDER_JSON` contains `"error": "cycle_detected"`: log the cycle, list the unresolvable
+phases, and exit with a clear error. Do NOT guess — ask the user to fix the ROADMAP.
+
+**Step 3 — Emit build-order table:**
+
+Parse the JSON and display:
+
+```
+## Build Order (topo-sorted, filtered by status)
+
+| # | Phase | Status | Deps | Complete | Action |
+|---|-------|--------|------|----------|--------|
+| 1 | 12 | ready | — | no | execute |
+| 2 | 11 | paused | — | partial | skip (resume after 12 flips to ready) |
+| 3 | 10 | blocked | cross-project | no | skip (external dep) |
+```
+
+Store the `actionable` array from the JSON as `$BUILD_ORDER` (space-separated phase IDs)
+for consumption by `build_loop`. The loop iterates over `$BUILD_ORDER`, not numeric range.
+
+**Step 4 — Status-aware skipping:**
+
+For each phase encountered by build_loop:
+- If current ROADMAP status is `paused` or `blocked` → log "Skipping Phase N (status: paused|blocked)" and do NOT invoke plan-phase / execute-phase
+- If a phase's upstream dep becomes complete mid-run, re-read order at next build_loop iteration (phases may flip from paused → ready when their blocker resolves)
+- Numeric fallback: if no `**Depends on**:` fields exist anywhere in ROADMAP, `actionable` == original numeric order and the topo-sort is a no-op. Safe for projects that don't declare deps.
+
+**Non-goal:** This step does NOT re-plan or re-order phases mid-execution based on
+verification results. That's the job of future "goal-seeking execution" (separate
+improvement). Phase 12 was initially added AFTER phase 11 started — the topo-sort picks
+that up at the NEXT build-all invocation, not during the current one.
+</step>
+
 <step name="check_config">
 **Load workflow config:**
 
@@ -635,7 +751,10 @@ Starting build pipeline...
 
 **Main build loop (continues until no phases or issues remain):**
 
-**For each phase in roadmap order:**
+**For each phase in `$BUILD_ORDER` (topo-sorted + status-filtered, see `phase_ordering` step):**
+
+Before each iteration, re-read `.planning/.build-all-order.json` — phases may have
+flipped status (paused → ready) if an upstream dep just completed.
 
 1. **Check phase status:**
    ```bash
@@ -1254,25 +1373,104 @@ If **NO**, do not commit (leave changes unstaged or revert).
 
 
 <step name="handle_checkpoints">
-**Handle blocking checkpoints during execution:**
+**Handle blocking checkpoints via vision-alignment judge (NOT blanket auto-approve):**
 
-If execution pauses at checkpoint:decision or checkpoint:human-action:
+When execution pauses at `checkpoint:decision`, `checkpoint:human-verify`, or a plan
+with `autonomous: false` emits a pilot/review checkpoint, DO NOT rubber-stamp and
+DO NOT silently pause. Delegate the judgment to an independent vision-alignment judge
+via `/gsd:vision-check`. The judge decides in a fresh context window, tests against
+the project's vision docs, and returns a verdict.
+
+**Why this replaces blanket auto-approve:**
+
+A plan's author wrote `autonomous: false` for a reason — usually to catch prompt bugs,
+semantic drift, or wasted work before bulk operations. Auto-approving makes that
+intent meaningless. An independent judge keeps build-all autonomous while preserving
+the quality gate: 80% of checkpoints get auto-handled with *judgment* (not stamping),
+15% escalate with a good summary (human decides in 30s, not 10 min of forensics),
+5% are zero-to-one calls the human must make anyway.
+
+**1. Capture checkpoint payload:**
+
+Build a JSON file describing what the judge needs:
+
+```bash
+cat > /tmp/gsd-checkpoint-${PHASE}-${PLAN}.json <<EOF
+{
+  "phase": "${PHASE}",
+  "plan": "${PLAN}",
+  "type": "pilot_review|human_verify|decision",
+  "question": "<the specific thing needing judgment>",
+  "artifacts": [
+    "<path to logs>",
+    "<path to pilot output>",
+    "<DB table to sample>"
+  ],
+  "must_haves": [<from plan frontmatter>],
+  "expected_contribution": "<what this phase should add to vision-metric>"
+}
+EOF
+```
+
+**2. Invoke judge:**
+
+```bash
+VERDICT=$(SlashCommand "/gsd:vision-check --auto --checkpoint /tmp/gsd-checkpoint-${PHASE}-${PLAN}.json")
+```
+
+The `--auto` flag tells vision-check to emit a single JSON object to stdout
+(no prose). Parse it:
+
+```bash
+DECISION=$(echo "$VERDICT" | jq -r '.decision')
+CONFIDENCE=$(echo "$VERDICT" | jq -r '.confidence')
+REASONING=$(echo "$VERDICT" | jq -r '.reasoning')
+FOLLOWUP=$(echo "$VERDICT" | jq -r '.followup')
+```
+
+**3. Apply decision policy:**
+
+| Decision | Confidence | Action |
+|----------|-----------|--------|
+| `approve` | ≥ 0.80 | Continue autonomously. Log to .build-all-status.json |
+| `approve` | 0.60–0.80 | Continue, flag for post-hoc review (mark in status file) |
+| `approve` | < 0.60 | Escalate — judge itself signals uncertainty |
+| `reject` | any | Execute `followup` (re-plan, re-iterate, fix prompt) |
+| `escalate` | any | Wake user with reasoning + red_flags, wait for input |
+
+**4. Audit & learn:**
+
+Every verdict is appended to `.planning/vision-decisions.jsonl` by `/gsd:vision-check`
+itself. Nightly Dream hooks verify outcomes (git reverts, manual corrections) and write
+`feedback_vision_judge_*` memories. The judge calibrates toward Mark's actual standard
+over time — it doesn't stay "generic LLM reasoning".
+
+**5. Fallback when `/gsd:vision-check` is unavailable:**
+
+If the command is not installed in this runtime (SlashCommand returns an error):
+
+- Log: `WARN: /gsd:vision-check not available, falling back to legacy checkpoint handling`
+- YOLO mode: auto-approve (legacy behavior — accept the tradeoff explicitly)
+- Interactive mode: prompt user as before
+
+The judge is an improvement, not a hard requirement. Build-all still works without it —
+but with noticeably less quality protection on checkpoints.
+
+**6. Display to user:**
 
 ```
-Build paused at checkpoint
+Checkpoint: Phase {X}, Plan {Y}
 
-Phase {X}, Plan {Y}: {checkpoint details}
+Judge verdict: {decision} (confidence {N}/1.0)
+Reasoning: {one-paragraph from judge}
 
-After resolving checkpoint, build will continue automatically.
+{if approve + continuing: "Proceeding autonomously."}
+{if reject: "Running followup: {description}"}
+{if escalate: "Awaiting your input — see red_flags above."}
 ```
 
-In YOLO mode:
-- Note checkpoint but continue if possible
-- Only pause for truly blocking decisions
-
-In interactive mode:
-- Wait for user decision/action
-- Resume build after checkpoint resolved
+**Design principle:** the checkpoint is no longer a pause — it's a *question asked to
+a judge*. Build-all pauses only when the judge itself cannot answer confidently.
 </step>
 
 </process>
@@ -1292,6 +1490,12 @@ In interactive mode:
 - [ ] Gap closure limited to 1 retry (prevents infinite loops)
 - [ ] Planning uses context from previous phase summaries
 - [ ] Progress shown throughout build
+- [ ] Phase execution order is topo-sorted on `Depends on:` (not strict numeric)
+- [ ] Paused/blocked phases auto-skipped (status field respected)
+- [ ] Cycle detection exits cleanly if phase deps are circular
+- [ ] Checkpoints delegated to `/gsd:vision-check` (not blanket auto-approve)
+- [ ] Judge verdicts logged to `.planning/vision-decisions.jsonl` for learning
+- [ ] Judge-unavailable fallback preserves legacy behavior with clear warning
 - [ ] Pipeline pauses only at blocking checkpoints
 - [ ] Open issues checked after all phases complete
 - [ ] User notified if open issues exist (not in roadmap)
