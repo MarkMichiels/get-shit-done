@@ -1,3 +1,16 @@
+> **⚡ This is MarkMichiels' personal fork** of [glittercowboy/get-shit-done](https://github.com/glittercowboy/get-shit-done).
+>
+> Diverged from upstream by **59 commits ahead, 602 commits behind** (as of 2026-04-22).
+> Primary additions: autonomous `/gsd:build-all` with daemon loop, vision-alignment judge
+> (`/gsd:vision-check`), cross-project issue ping-pong protocol (`/gsd:create-issue`),
+> adversarial verifier with 5-dimension quality rubrics, auto-install post-commit hook.
+>
+> **See [FORK-VS-UPSTREAM.md](FORK-VS-UPSTREAM.md) for the complete feature-by-feature comparison.**
+>
+> Upstream README and branding preserved below.
+
+---
+
 <div align="center">
 
 # GET SHIT DONE
@@ -832,9 +845,33 @@ These community ports pioneered multi-runtime support:
 
 ---
 
+## Fork-Exclusive Commands
+
+Commands and tooling that exist **only in MarkMichiels' fork**, not in upstream. See [FORK-VS-UPSTREAM.md §1](FORK-VS-UPSTREAM.md#1-fork-exclusive-additions-12-files) for birth dates, commit hashes, and full context.
+
+| Surface | What it does |
+|---------|--------------|
+| `/gsd:build-all` | Autonomous plan → execute each phase sequentially, then daemon loop for issue resolution and repo improvement |
+| `/gsd:build-phase` | Plan and execute a single phase in one command |
+| `/gsd:create-issue` | Create issues in `ISSUES.md`, including cross-project ping-pong protocol for multi-repo work |
+| `/gsd:publish-version` | Automate version releases with changelog generation from commits |
+| `/gsd:vision-check` | Fresh-context judge agent that tests artifacts against `PROJECT.md` vision rather than local completion criteria |
+| `hooks/post-commit` | Auto-installs GSD globally after commits that touch GSD files (see [AUTO_INSTALL_HOOK.md](AUTO_INSTALL_HOOK.md)) |
+| `hooks/gsd-auto-verify.js` | `PostToolUse` hook — runs tests automatically after Edit/Write on code files |
+| `hooks/gsd-update-docs.js` | `Stop` hook — regenerates `FEATURES.md` and `COVERAGE.md` from `.planning/requirements/*.yaml` |
+| `get-shit-done/references/external-tools.md` | Reference for Exa neural-search integration during research phases |
+| `.cursor/commands/gsd` → `commands/gsd` | Symlink that mirrors the command set into Cursor |
+
+The fork also carries **opinionated rewrites** of two upstream agents:
+
+- `agents/gsd-verifier.md` — reframed as an **adversarial red-team evaluator** with 5-dimension quality rubrics (completeness, correctness, integration, edge_cases, code_quality; overall = minimum of the 5). Default assumption: the phase failed.
+- `agents/gsd-executor.md` — adds an AxaBio traceability and documentation-sync block that keeps `FEATURES.md` and `COVERAGE.md` in step with requirements YAML.
+
+---
+
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT License (inherited from upstream). See [LICENSE](LICENSE) for details.
 
 ---
 
