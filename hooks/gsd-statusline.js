@@ -18,7 +18,7 @@ process.stdin.on('end', () => {
   clearTimeout(stdinTimeout);
   try {
     const data = JSON.parse(input);
-    const model = data.model?.display_name || 'Claude';
+    const model = (data.model?.display_name || 'Claude').replace(/\s*\([^)]*\)\s*$/, '');
     const dir = data.workspace?.current_dir || process.cwd();
     const session = data.session_id || '';
     const remaining = data.context_window?.remaining_percentage;
@@ -50,19 +50,15 @@ process.stdin.on('end', () => {
         }
       }
 
-      // Build progress bar (10 segments)
-      const filled = Math.floor(used / 10);
-      const bar = '█'.repeat(filled) + '░'.repeat(10 - filled);
-
-      // Color based on usable context thresholds
+      // Color based on usable context thresholds (percentage only, no bar)
       if (used < 50) {
-        ctx = ` \x1b[32m${bar} ${used}%\x1b[0m`;
+        ctx = ` \x1b[32mctx${used}%\x1b[0m`;
       } else if (used < 65) {
-        ctx = ` \x1b[33m${bar} ${used}%\x1b[0m`;
+        ctx = ` \x1b[33mctx${used}%\x1b[0m`;
       } else if (used < 80) {
-        ctx = ` \x1b[38;5;208m${bar} ${used}%\x1b[0m`;
+        ctx = ` \x1b[38;5;208mctx${used}%\x1b[0m`;
       } else {
-        ctx = ` \x1b[5;31m💀 ${bar} ${used}%\x1b[0m`;
+        ctx = ` \x1b[5;31m💀ctx${used}%\x1b[0m`;
       }
     }
 
@@ -91,28 +87,64 @@ process.stdin.on('end', () => {
       }
     }
 
-    // GSD update available?
+    // Stale hooks warning (kept — genuinely critical). GSD update banner removed per user pref.
     let gsdUpdate = '';
     const cacheFile = path.join(claudeDir, 'cache', 'gsd-update-check.json');
     if (fs.existsSync(cacheFile)) {
       try {
         const cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-        if (cache.update_available) {
-          gsdUpdate = '\x1b[33m⬆ /gsd:update\x1b[0m │ ';
-        }
         if (cache.stale_hooks && cache.stale_hooks.length > 0) {
-          gsdUpdate += '\x1b[31m⚠ stale hooks — run /gsd:update\x1b[0m │ ';
+          gsdUpdate = '\x1b[31m⚠ stale hooks — run /gsd:update\x1b[0m │ ';
         }
       } catch (e) {}
     }
 
-    // Output
-    const dirname = path.basename(dir);
-    if (task) {
-      process.stdout.write(`${gsdUpdate}\x1b[2m${model}\x1b[0m │ \x1b[1m${task}\x1b[0m │ \x1b[2m${dirname}\x1b[0m${ctx}`);
-    } else {
-      process.stdout.write(`${gsdUpdate}\x1b[2m${model}\x1b[0m │ \x1b[2m${dirname}\x1b[0m${ctx}`);
+    // Account + quota indicator (5-hour burst + 7-day rolling window)
+    const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(homeDir, '.claude');
+    const acctName = configDir.includes('claude-background') ? 'bg' : 'main';
+    let weekPct = data.rate_limits?.seven_day?.used_percentage;
+    let burstPct = data.rate_limits?.five_hour?.used_percentage;
+    // Fallback: read from shared file cache when rate_limits not yet available
+    if (weekPct == null || burstPct == null) {
+      try {
+        const cache = JSON.parse(fs.readFileSync('/tmp/claude_quota_cache.json', 'utf8'));
+        const entry = cache[configDir];
+        if (weekPct == null && entry?._response?.seven_day?.utilization != null) {
+          weekPct = entry._response.seven_day.utilization;
+        }
+        if (burstPct == null && entry?._response?.five_hour?.utilization != null) {
+          burstPct = entry._response.five_hour.utilization;
+        }
+      } catch (e) {}
     }
+    const colorFor = pct => pct > 80 ? '\x1b[31m' : pct > 60 ? '\x1b[33m' : '\x1b[32m';
+    const parts = [];
+    if (burstPct != null) {
+      parts.push(`${colorFor(burstPct)}5h${Math.round(burstPct)}%\x1b[0m`);
+    }
+    if (weekPct != null) {
+      parts.push(`${colorFor(weekPct)}7d${Math.round(weekPct)}%\x1b[0m`);
+    }
+    // Account label: only show when non-default (bg), skip for main to save space
+    const acctPrefix = acctName === 'bg' ? `\x1b[2mbg\x1b[0m ` : '';
+    let acct;
+    if (parts.length > 0) {
+      acct = `${acctPrefix}${parts.join('·')}`;
+    } else {
+      acct = `${acctPrefix}\x1b[2m${acctName}\x1b[0m`;
+    }
+
+    // Output — critical-first order so narrow windows keep quota + context visible.
+    // Right-side fields (model, gsd update hint) get truncated first.
+    // Dirname kept because agents/worktrees run in different basedirs.
+    const dirname = path.basename(dir);
+    const ctxTrimmed = ctx.replace(/^ /, '');  // remove leading space for first-position use
+    const trailing = [];
+    if (task) trailing.push(`\x1b[1m${task}\x1b[0m`);
+    trailing.push(`\x1b[2m${dirname}\x1b[0m`);
+    trailing.push(`\x1b[2m${model}\x1b[0m`);
+    if (gsdUpdate) trailing.push(gsdUpdate.replace(/ │ $/, ''));
+    process.stdout.write(`${acct} ${ctxTrimmed} │ ${trailing.join(' │ ')}`);
   } catch (e) {
     // Silent fail - don't break statusline on parse errors
   }
