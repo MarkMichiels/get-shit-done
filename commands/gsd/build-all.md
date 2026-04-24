@@ -73,9 +73,15 @@ Check immediately if the project is already complete:
 if [ -f .planning/ROADMAP.md ]; then
     TOTAL=$(grep -cE '^\s*- \[' .planning/ROADMAP.md 2>/dev/null || echo "0")
     DONE=$(grep -cE '^\s*- \[x\]' .planning/ROADMAP.md 2>/dev/null || echo "0")
-    BUGS=$(awk '/^## Open Bugs/,/^## (Open Enhancements|Resolved)/ { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null || echo "0")
-    ENH=$(awk '/^## Open Enhancements/,/^## Resolved/ { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null || echo "0")
-    OPEN=$((BUGS + ENH))
+    # Tolerant open-issue count — survives schema drift across projects.
+    # Resolved sections (Resolved/Closed/Done/Archived) AND ~~strikethrough~~ both excluded.
+    # Works for schemas: 3-section (Open Bugs/Enhancements/Resolved), Open/Closed, no-sections.
+    OPEN=$(awk '
+      /^## (Resolved|Closed|Done|Archived|Archive)/ { resolved=1; next }
+      /^## Open/ { resolved=0; next }
+      /^#{2,3} ISS-[0-9]+:/ && !/~~/ && !resolved { c++ }
+      END { print c+0 }
+    ' .planning/ISSUES.md 2>/dev/null || echo "0")
     echo "FAST_PATH_CHECK|phases=$DONE/$TOTAL|issues=$OPEN"
 fi
 ```
@@ -963,11 +969,15 @@ flipped status (paused → ready) if an upstream dep just completed.
 
 **Step 5a. Check for open issues:**
 ```bash
-# Count open bugs AND enhancements (exclude resolved ~~ISS~~ entries)
+# Count open issues — tolerant to schema drift (multiple section conventions).
+# Excluded: Resolved/Closed/Done/Archived sections AND ~~strikethrough~~ headers.
 if [ -f .planning/ISSUES.md ]; then
-  BUGS=$(awk '/^## Open Bugs/,/^## (Open Enhancements|Resolved)/ { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md)
-  ENH=$(awk '/^## Open Enhancements/,/^## Resolved/ { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md)
-  echo "$((BUGS + ENH))"
+  awk '
+    /^## (Resolved|Closed|Done|Archived|Archive)/ { resolved=1; next }
+    /^## Open/ { resolved=0; next }
+    /^#{2,3} ISS-[0-9]+:/ && !/~~/ && !resolved { c++ }
+    END { print c+0 }
+  ' .planning/ISSUES.md
 else
   echo "0"
 fi
@@ -1248,9 +1258,25 @@ This command returns exactly one of two strings:
 When the wait returns (either trigger), read ISSUES.md and count open issues:
 
 ```bash
-BUGS=$(awk '/^## Open Bugs/,/^## (Open Enhancements|Resolved)/ { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null)
-ENH=$(awk '/^## Open Enhancements/,/^## Resolved/ { if (/^### ISS-[0-9]+:/ && !/~~/) c++ } END { print c+0 }' .planning/ISSUES.md 2>/dev/null)
-echo "OPEN_BUGS=$BUGS OPEN_ENH=$ENH TOTAL=$((BUGS + ENH))"
+# Tolerant count: survives schema drift (## Open, ## Open Bugs, or no sections).
+# Excludes Resolved/Closed/Done/Archived sections AND ~~strikethrough~~ headers.
+TOTAL=$(awk '
+  /^## (Resolved|Closed|Done|Archived|Archive)/ { resolved=1; next }
+  /^## Open/ { resolved=0; next }
+  /^#{2,3} ISS-[0-9]+:/ && !/~~/ && !resolved { c++ }
+  END { print c+0 }
+' .planning/ISSUES.md 2>/dev/null)
+# Bug vs Enhancement classification via per-issue body "Type:" field (case-insensitive).
+BUGS=$(awk '
+  /^## (Resolved|Closed|Done|Archived|Archive)/ { resolved=1; next }
+  /^## Open/ { resolved=0; next }
+  /^#{2,3} ISS-[0-9]+:/ && !/~~/ && !resolved { in_open=1; is_bug=0; next }
+  /^#{2,3} / { if (is_bug) bugs++; in_open=0 }
+  in_open && tolower($0) ~ /type:.*bug/ { is_bug=1 }
+  END { if (is_bug) bugs++; print bugs+0 }
+' .planning/ISSUES.md 2>/dev/null)
+ENH=$((TOTAL - BUGS))
+echo "OPEN_BUGS=$BUGS OPEN_ENH=$ENH TOTAL=$TOTAL"
 ```
 
 **4. Act on result:**
