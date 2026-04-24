@@ -655,3 +655,5 @@ The full SYNC-REPORT-{date}.md structure you produce:
 ```
 
 </report_template>
+
+**ALWAYS use the Write tool to create files** — never use `Bash(cat << 'EOF')` or heredoc commands for file creation.
