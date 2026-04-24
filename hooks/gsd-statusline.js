@@ -99,9 +99,34 @@ process.stdin.on('end', () => {
       } catch (e) {}
     }
 
-    // Per-session output tokens (what this window contributed to quota).
-    // Helps identify the "big consumer" when many windows share the same 7d/5h bar.
-    let sessOut = null;
+    // Per-session API cost estimate (what this window would have cost on pay-per-token).
+    // Loads pricing config from ~/.claude/pricing.json (symlinked from mark-private).
+    // Falls back to safe Opus 4.7 defaults if config missing — keeps hook portable for
+    // other GSD users who don't have the mark-private layer.
+    let pricingCfg = null;
+    try {
+      pricingCfg = JSON.parse(fs.readFileSync(path.join(claudeDir, 'pricing.json'), 'utf8'));
+    } catch (e) {}
+    const DEFAULT_PRICING = {
+      eur_rate: 0.92,
+      color_thresholds_eur: { yellow: 5, orange: 20, red: 50 },
+      models: { "opus-4.7": { input: 5, output: 25, cache_write_5m: 6.25, cache_read: 0.50 } },
+      family_fallback: { haiku: "opus-4.7", sonnet: "opus-4.7", opus: "opus-4.7" },
+    };
+    const cfg = pricingCfg || DEFAULT_PRICING;
+    // Model resolution: exact match first (normalised), then family regex fallback.
+    const modelNorm = (model || '').toLowerCase().replace(/\s+/, '-');
+    let p = cfg.models[modelNorm];
+    if (!p) {
+      const family = /haiku/i.test(model) ? 'haiku'
+                   : /sonnet/i.test(model) ? 'sonnet'
+                   : /opus/i.test(model) ? 'opus'
+                   : 'opus';
+      const fallbackKey = cfg.family_fallback?.[family] || 'opus-4.7';
+      p = cfg.models[fallbackKey] || DEFAULT_PRICING.models["opus-4.7"];
+    }
+
+    let sessCost = null;
     if (session) {
       try {
         const projectsDir = path.join(claudeDir, 'projects');
@@ -110,17 +135,23 @@ process.stdin.on('end', () => {
             const candidate = path.join(projectsDir, d, `${session}.jsonl`);
             if (!fs.existsSync(candidate)) continue;
             const raw = fs.readFileSync(candidate, 'utf8');
-            let outTok = 0;
+            let cost = 0;
             for (const line of raw.split('\n')) {
               if (!line.includes('"usage"')) continue;
               try {
                 const obj = JSON.parse(line);
                 if (obj.type === 'assistant') {
-                  outTok += obj.message?.usage?.output_tokens || 0;
+                  const u = obj.message?.usage;
+                  if (u) {
+                    cost += ((u.input_tokens || 0) * p.input
+                          + (u.output_tokens || 0) * p.output
+                          + (u.cache_creation_input_tokens || 0) * p.cache_write_5m
+                          + (u.cache_read_input_tokens || 0) * p.cache_read) / 1e6;
+                  }
                 }
               } catch (e) {}
             }
-            sessOut = outTok;
+            sessCost = cost;
             break;
           }
         }
@@ -153,15 +184,15 @@ process.stdin.on('end', () => {
     if (weekPct != null) {
       parts.push(`${colorFor(weekPct)}7d${Math.round(weekPct)}%\x1b[0m`);
     }
-    if (sessOut != null && sessOut > 0) {
-      // Output tokens is the dominant cost driver; thresholds picked for Opus 4.7 typical sessions.
-      const k = sessOut / 1000;
-      const label = k >= 1000 ? `${(k / 1000).toFixed(1)}M` : `${Math.round(k)}K`;
-      const sessColor = sessOut > 200000 ? '\x1b[31m'
-                      : sessOut > 100000 ? '\x1b[38;5;208m'
-                      : sessOut > 50000 ? '\x1b[33m'
+    if (sessCost != null && sessCost > 0) {
+      const eur = sessCost * (cfg.eur_rate || DEFAULT_PRICING.eur_rate);
+      const label = eur < 1 ? `€${eur.toFixed(2)}` : `€${Math.round(eur)}`;
+      const t = cfg.color_thresholds_eur || DEFAULT_PRICING.color_thresholds_eur;
+      const sessColor = eur > t.red ? '\x1b[31m'
+                      : eur > t.orange ? '\x1b[38;5;208m'
+                      : eur > t.yellow ? '\x1b[33m'
                       : '\x1b[32m';
-      parts.push(`${sessColor}s${label}\x1b[0m`);
+      parts.push(`${sessColor}${label}\x1b[0m`);
     }
     // Account label: only show when non-default (bg), skip for main to save space
     const acctPrefix = acctName === 'bg' ? `\x1b[2mbg\x1b[0m ` : '';
