@@ -99,6 +99,34 @@ process.stdin.on('end', () => {
       } catch (e) {}
     }
 
+    // Per-session output tokens (what this window contributed to quota).
+    // Helps identify the "big consumer" when many windows share the same 7d/5h bar.
+    let sessOut = null;
+    if (session) {
+      try {
+        const projectsDir = path.join(claudeDir, 'projects');
+        if (fs.existsSync(projectsDir)) {
+          for (const d of fs.readdirSync(projectsDir)) {
+            const candidate = path.join(projectsDir, d, `${session}.jsonl`);
+            if (!fs.existsSync(candidate)) continue;
+            const raw = fs.readFileSync(candidate, 'utf8');
+            let outTok = 0;
+            for (const line of raw.split('\n')) {
+              if (!line.includes('"usage"')) continue;
+              try {
+                const obj = JSON.parse(line);
+                if (obj.type === 'assistant') {
+                  outTok += obj.message?.usage?.output_tokens || 0;
+                }
+              } catch (e) {}
+            }
+            sessOut = outTok;
+            break;
+          }
+        }
+      } catch (e) {}
+    }
+
     // Account + quota indicator (5-hour burst + 7-day rolling window)
     const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(homeDir, '.claude');
     const acctName = configDir.includes('claude-background') ? 'bg' : 'main';
@@ -124,6 +152,16 @@ process.stdin.on('end', () => {
     }
     if (weekPct != null) {
       parts.push(`${colorFor(weekPct)}7d${Math.round(weekPct)}%\x1b[0m`);
+    }
+    if (sessOut != null && sessOut > 0) {
+      // Output tokens is the dominant cost driver; thresholds picked for Opus 4.7 typical sessions.
+      const k = sessOut / 1000;
+      const label = k >= 1000 ? `${(k / 1000).toFixed(1)}M` : `${Math.round(k)}K`;
+      const sessColor = sessOut > 200000 ? '\x1b[31m'
+                      : sessOut > 100000 ? '\x1b[38;5;208m'
+                      : sessOut > 50000 ? '\x1b[33m'
+                      : '\x1b[32m';
+      parts.push(`${sessColor}s${label}\x1b[0m`);
     }
     // Account label: only show when non-default (bg), skip for main to save space
     const acctPrefix = acctName === 'bg' ? `\x1b[2mbg\x1b[0m ` : '';
