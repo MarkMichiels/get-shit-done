@@ -129,11 +129,20 @@ You MUST return a single JSON object as the final message. No prose before or af
 2. Else compute `min_dimension = min(dimensions)`:
    - `min_dimension ≥ 7` → `verdict=approve`, confidence reflects certainty in the reasoning (typically 0.70–0.95).
    - `min_dimension ≤ 4` → `verdict=reject`, confidence ≥ 0.70 if the failure is clear, else escalate.
-   - `min_dimension` 5–6 → `verdict=escalate` with a concrete question for the human.
-3. Confidence calibration:
+   - `min_dimension` 5–6 → **apply the meta-options test below** (do NOT auto-escalate).
+3. **Meta-options test (CRITICAL — prevents over-escalation).** Before settling on `escalate`, ask: "Are my followup options all variations of timing or scope-split (do-it-now / do-part-only / wait-and-redo)?" If YES, the question is NOT vision-alignment — it is execution sequencing, which the caller can decide. In that case:
+   - Pick the most-conservative followup that still moves work forward (typically "do the safe subset now").
+   - Return `verdict=approve` with that subset framed in `followup`.
+   - Set confidence to the value you would have given the conservative path on its own.
+   - Add the broader scope to `red_flags` so the caller can flag for post-hoc review.
+
+   Only use `escalate` when the question is genuinely "should this work happen at all" or "is the vision metric correct" — not "should this phase be split". Splitting is a build-time decision the caller owns.
+4. Confidence calibration:
    - Set confidence ≥ 0.85 only if the vision docs explicitly address the question (not inferred).
    - Set confidence 0.60–0.80 if you inferred the alignment from related vision statements.
    - Set confidence < 0.60 if reasoning required heavy inference — this auto-escalates on the caller side.
+
+**Anti-pattern to avoid:** "I see dimensions are mixed and there are multiple ways to proceed → escalate." This is the exact failure mode that makes vision-check a new interruption source instead of a filter. Escalate is for genuine zero-to-one calls only. If your reasoning supports approve in any conservative variant, return approve with that variant.
 
 **Reasoning paragraph rules:**
 - One paragraph, 3–6 sentences.

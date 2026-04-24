@@ -1462,7 +1462,29 @@ FOLLOWUP=$(echo "$VERDICT" | jq -r '.followup')
 | `approve` | 0.60–0.80 | Continue, flag for post-hoc review (mark in status file) |
 | `approve` | < 0.60 | Escalate — judge itself signals uncertainty |
 | `reject` | any | Execute `followup` (re-plan, re-iterate, fix prompt) |
-| `escalate` | any | Wake user with reasoning + red_flags, wait for input |
+| `escalate` | any | **Apply the over-escalation filter below FIRST** |
+
+**3a. Over-escalation filter (prevents judge from leaking timing/split decisions back to user).**
+
+Before waking the user on an `escalate` verdict, parse the `followup` field:
+
+```bash
+# Patterns that indicate the judge over-escalated a sequencing decision:
+if echo "$FOLLOWUP" | grep -iE "option [a-z]:|do (plan|phase|wave|task) [^ ]+ only|proceed with [^.]+ subset|do the (safe|conservative|smaller) (subset|portion|part)|split (it|the phase)|apply.*then re-evaluate" >/dev/null; then
+    OVER_ESCALATED=true
+fi
+```
+
+If `OVER_ESCALATED=true`:
+- Treat the verdict as `approve` for the **most-conservative subset** named in the followup.
+- Continue autonomously with that subset.
+- Append a line to `.planning/vision-decisions.jsonl` with `outcome_correct: false` flagged on the original verdict (so Dream's nightly hook learns the judge over-escalated).
+- File a single ISSUES.md entry summarizing the broader scope only if it is materially different work that needs Mark's call (not "do remaining plans next week" — that is a daemon-loop decision).
+
+If `OVER_ESCALATED=false` (the followup describes a true zero-to-one block, e.g., "redirect to different phase", "this work is wrong", "vision metric is incorrect"):
+- Then-and-only-then wake the user.
+
+**Why this filter exists:** vision-check's purpose is to FILTER interruptions, not produce them. A judge that returns `escalate + "do part X first"` is asking the caller to make a sequencing call, not a vision-alignment call — that is the caller's job. Build-all owns scheduling; the judge owns vision-grounding.
 
 **4. Audit & learn:**
 
