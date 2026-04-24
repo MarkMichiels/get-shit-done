@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+> **Fork versioning note:** This fork tracks its own version via `/gsd:publish-version`,
+> independent of upstream `glittercowboy/get-shit-done`. Upstream has released v1.30 through
+> v1.38.x since this fork's v1.29.0; those release notes are **not** ported here because
+> several features (SDK Phase 3, `--full` semantics, project_code restructuring, secure-phase
+> workflow) were deliberately rejected during fork-sync — see [FORK-VS-UPSTREAM.md](FORK-VS-UPSTREAM.md)
+> and `SYNC-REPORT-*.md` for rationale per cluster.
+
+### Added (post-1.29.0, fork-exclusive)
+
+- **`/gsd:build-all` daemon loop** — autonomous issue polling via inotifywait on `.planning/ISSUES.md`
+- **`/gsd:vision-check`** — independent vision-alignment judge (Opus, fresh context)
+- **`/gsd:create-issue`** — cross-project issue ping-pong protocol
+- **`gsd-fork-syncer` agent** — LLM-assisted upstream merge with per-cluster vision-judge verdicts
+- **Statusline** — compact quota-first layout with 5h burst indicator and per-session output tokens (fork-only)
+
+### Merged from upstream
+
+- **runtime-support cluster (2026-04-23)** — Windsurf trailing slash fix, Codex `.claude` path, Gemini `permissionMode` fix
+- **workstreams cluster (2026-04-23)** — duplicate removal, `GSD_PROJECT` env var, `workstream set` name arg + `--clear` flag
+- **opencode permission-guard (2026-04-24)** — guard string-valued permission config (without SDK exports block, #781)
+
+### Fixed
+
+- **ISSUES.md polling regex** — tolerant to schema drift across project conventions (no sections, `## Open`, 3-section); excludes Resolved/Closed/Done/Archived + `~~strikethrough~~` headers
+- **gsd-fork-syncer anti-heredoc instruction** — added to agent prompt (was missing from fork-exclusive agent)
+
 ## [1.29.0] - 2026-03-25
 
 ### Added

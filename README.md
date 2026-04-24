@@ -1,6 +1,6 @@
 > **⚡ This is MarkMichiels' personal fork** of [glittercowboy/get-shit-done](https://github.com/glittercowboy/get-shit-done).
 >
-> Diverged from upstream by **59 commits ahead, 602 commits behind** (as of 2026-04-22).
+> Diverged from upstream by **74 commits ahead, 637 commits behind** (as of 2026-04-24).
 > Primary additions: autonomous `/gsd:build-all` with daemon loop, vision-alignment judge
 > (`/gsd:vision-check`), cross-project issue ping-pong protocol (`/gsd:create-issue`),
 > adversarial verifier with 5-dimension quality rubrics, auto-install post-commit hook.
